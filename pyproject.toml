@@ -20,6 +20,13 @@ classifiers = [
 ]
 dependencies = ["click>=8.1"]
 
+[project.urls]
+Homepage = "https://igamenovoer.github.io/lairen/"
+Documentation = "https://igamenovoer.github.io/lairen/"
+Repository = "https://github.com/igamenovoer/lairen"
+Issues = "https://github.com/igamenovoer/lairen/issues"
+Changelog = "https://github.com/igamenovoer/lairen/releases"
+
 [project.scripts]
 lairen = "lairen.cli:main"
 
@@ -38,6 +45,7 @@ pytest-xdist = ">=3"
 ruff = ">=0.6"
 mypy = ">=1.10"
 python-build = ">=1.2"
+mkdocs-material = ">=9.8.0,<10"
 
 [tool.pixi.pypi-dependencies]
 lairen = { path = ".", editable = true }
@@ -50,6 +58,8 @@ build = "python -m build"
 lint = "ruff check src tests"
 fmt = "ruff format src tests"
 typecheck = "mypy src"
+docs-build = "mkdocs build --strict"
+docs-serve = "mkdocs serve"
 
 [tool.pytest.ini_options]
 testpaths = [

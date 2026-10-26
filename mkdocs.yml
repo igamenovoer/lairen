@@ -1,0 +1,102 @@
+site_name: lairen
+site_url: https://igamenovoer.github.io/lairen/
+site_description: Store CLI-agent credentials and deploy them into target homes.
+site_author: igamenovoer
+repo_url: https://github.com/igamenovoer/lairen
+repo_name: igamenovoer/lairen
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 igamenovoer
+
+theme:
+  name: material
+  language: en
+  icon:
+    logo: material/key-chain
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.code.select
+    - content.tabs.link
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quick start: getting-started/quickstart.md
+  - Concepts:
+      - Identities and refs: concepts/identities.md
+      - Storage and paths: concepts/storage.md
+      - Security model: concepts/security.md
+  - Guides:
+      - Scan for accounts: guides/scanning.md
+      - Deploy credentials: guides/deploying.md
+      - Track usage and expiry: guides/usage.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Providers: reference/providers.md
+  - Development:
+      - Contributing: development/contributing.md
+      - Releasing: development/releasing.md
+
+exclude_docs: |
+  /README.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.keys
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/igamenovoer/lairen
+      name: lairen on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/lairen/
+      name: lairen on PyPI

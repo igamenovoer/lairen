@@ -2,6 +2,12 @@
 
 **Bring the right CLI-agent identity to the right place.**
 
+[![PyPI](https://img.shields.io/pypi/v/lairen.svg)](https://pypi.org/project/lairen/)
+[![Docs](https://img.shields.io/badge/docs-igamenovoer.github.io%2Flairen-blue)](https://igamenovoer.github.io/lairen/)
+[![CI](https://github.com/igamenovoer/lairen/actions/workflows/ci.yml/badge.svg)](https://github.com/igamenovoer/lairen/actions/workflows/ci.yml)
+
+Full documentation: <https://igamenovoer.github.io/lairen/>
+
 `lairen` is a Python credential registry and deployer for CLI coding agents.
 It stores a provider login once, then materializes it into any target home on
 demand — project-local, holder directories, or throwaway worktrees.
@@ -191,6 +197,8 @@ pixi run test-core   # tests for src/lairen
 pixi run test-aux    # tests for repository support files
 pixi run lint
 pixi run typecheck
+pixi run docs-serve  # live documentation preview
+pixi run docs-build  # strict documentation build
 ```
 
 Codex and Kimi are the only adapters with live-credential tests. Other
@@ -203,7 +211,7 @@ adapters use fake payloads or remain untested until credentials are available.
 - `tests/aux/`: tests for repository support content
 - `extern/`: tracked, orphan, and linked-worktree external material
 - `context/`: plans, features, design, summaries, and archived context
-- `docs/`: user-facing documentation source
+- `docs/`: MkDocs Material documentation source, published to GitHub Pages
 - `scripts/`: repository automation outside the installed package
 - `skillset/`: project-specific agent skills
 
