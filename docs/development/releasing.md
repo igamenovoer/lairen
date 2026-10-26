@@ -32,15 +32,15 @@ to `site/`, which is not committed.
 2. Create and push an annotated tag:
 
    ```bash
-   git tag -a v0.2.0 -m "lairen 0.2.0"
-   git push origin v0.2.0
+   git tag -a vX.Y.Z -m "lairen X.Y.Z"
+   git push origin vX.Y.Z
    ```
 
 3. Create the GitHub release. Publishing the release triggers the PyPI
    workflow:
 
    ```bash
-   gh release create v0.2.0 --title "lairen 0.2.0" --generate-notes
+   gh release create vX.Y.Z --title "lairen X.Y.Z" --generate-notes
    ```
 
 4. Watch the workflow:
@@ -64,7 +64,7 @@ to `site/`, which is not committed.
 ## Verify the release
 
 ```bash
-uvx --from 'lairen==0.2.0' lairen --version
+uvx --from 'lairen==X.Y.Z' lairen --version
 ```
 
 Check the PyPI project page and the generated metadata:
