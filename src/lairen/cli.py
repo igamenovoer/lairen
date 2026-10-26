@@ -17,6 +17,7 @@ from lairen.errors import LairenError
 from lairen.models import Account
 from lairen.paths import Paths
 from lairen.providers import PROVIDERS, get_provider
+from lairen.scan import best_per_account, scan_accounts
 from lairen.store import CredentialStore, Registry
 from lairen.util import epoch_to_iso, format_remaining, utc_now
 
@@ -266,6 +267,85 @@ def remove(ref: str, yes: bool) -> None:
     store.delete(account.provider, account.id)
     registry.remove(account.provider, account.id)
     click.echo(f"removed {account.ref}")
+
+
+@cli.command()
+@click.argument(
+    "directory",
+    type=click.Path(path_type=Path, exists=True, file_okay=False),
+)
+@click.option(
+    "--depth",
+    type=click.IntRange(min=0),
+    default=1,
+    show_default=True,
+    help="directory levels below the scan root",
+)
+@click.option(
+    "--provider",
+    "provider_filter",
+    multiple=True,
+    type=click.Choice(["codex", "kimi"]),
+    help="limit the scan to a provider (repeatable)",
+)
+@click.option(
+    "--register", "do_register", is_flag=True, help="save discovered accounts"
+)
+@click.option("--json", "json_output", is_flag=True, help="emit machine-readable JSON")
+def scan(
+    directory: Path,
+    depth: int,
+    provider_filter: tuple[str, ...],
+    do_register: bool,
+    json_output: bool,
+) -> None:
+    """Scan a directory tree for Codex and Kimi credential homes."""
+    providers = provider_filter or ("codex", "kimi")
+    hits = scan_accounts(directory, depth=depth, providers=providers)
+    if not hits:
+        click.echo(f"no accounts found under {directory} (depth={depth})")
+        return
+
+    if do_register:
+        _, registry, store = _context()
+        for hit in best_per_account(hits):
+            blob = hit.credential.read_text(encoding="utf-8")
+            account = Account(
+                provider=hit.provider,
+                id=hit.identity.id,
+                label=hit.identity.label,
+                source_home=str(hit.home),
+                extra=hit.identity.extra,
+            )
+            store.set(account.provider, account.id, blob)
+            registry.upsert(account)
+            click.echo(f"registered {account.ref}  source={hit.home}")
+        return
+
+    if json_output:
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "provider": hit.provider,
+                        "ref": hit.ref,
+                        "label": hit.identity.label,
+                        "home": str(hit.home),
+                        "credential": str(hit.credential),
+                        "depth": hit.depth,
+                    }
+                    for hit in hits
+                ],
+                indent=2,
+            )
+        )
+        return
+
+    rows = [
+        (hit.provider, hit.ref, str(hit.home), hit.depth)
+        for hit in hits
+    ]
+    _print_table(("PROVIDER", "REF", "HOME", "DEPTH"), rows)
 
 
 @cli.command()

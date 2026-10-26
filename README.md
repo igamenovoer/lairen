@@ -6,7 +6,7 @@
 It stores a provider login once, then materializes it into any target home on
 demand — project-local, holder directories, or throwaway worktrees.
 
-Status: `0.1.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
+Status: `0.1.1`, Pixi-managed, Click-based. Codex and Kimi are the tested
 adapters; the other provider adapters are implemented but remain experimental
 because this project has no live credentials for them yet. Remote quota
 queries and OAuth refresh are the next milestones.
@@ -63,6 +63,34 @@ pixi run lairen usage
 pixi run lairen usage kimi/alice--device-id --json
 ```
 
+## Scanning
+
+Discover Codex and Kimi credential homes under a directory:
+
+```bash
+pixi run lairen scan ~/code --depth 2
+pixi run lairen scan ~/kimi-homes --depth 1 --provider kimi
+pixi run lairen scan ~/tmp/workspace --register
+pixi run lairen scan ~/code --depth 2 --json
+```
+
+Depth `0` checks only the given directory; depth `1` (the default) also checks
+its immediate children, so `~/code/project/.codex` is found at the top level.
+Symlink directories and common noise directories (`.git`, `.pixi`,
+`node_modules`, caches, build outputs) are skipped.
+
+Known patterns:
+
+- Codex: `<dir>/auth.json` and `<dir>/.codex/auth.json`, validated by Codex
+  auth fields.
+- Kimi: `<dir>/credentials/*.json`, `<dir>/.kimi-code/credentials/*.json`, and
+  `<dir>/.kimi/credentials/*.json`, validated by Kimi token fields. This
+  includes `kimi-code.json` and `kimi-code-env-*.json` names.
+
+Without `--register`, `scan` only reports findings. With `--register`, it
+saves each unique account and keeps the newest copy when the same account
+appears in multiple homes. Backup copies are reported as findings too.
+
 ## Provider surface
 
 `lairen` exposes every provider surface that `subswap` supports. Adapters
@@ -75,7 +103,7 @@ have not been exercised with live credentials here.
 | `codex` | yes | `CODEX_HOME` | `~/.codex` | `auth.json` | ChatGPT OAuth |
 | `commandcode` | no | `COMMANDCODE_HOME` | `~/.commandcode` | `auth.json` | API-key auth |
 | `cursor` | no | `CURSOR_HOME` | `~/.config/Cursor/User/globalStorage` | `state.vscdb` | Desktop SQLite; close Cursor before deploying |
-| `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `credentials/kimi-code.json` | Session identity `user_id--device_id` |
+| `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `credentials/*.json` | Session identity `user_id--device_id` |
 | `opencode` | no | `OPENCODE_HOME` | `~/.local/share/opencode` | `auth.json` | Go API-key slot; Console accounts use the official CLI |
 
 Provider home resolution order:
@@ -95,6 +123,7 @@ target from an environment variable.
 | `lairen list [--json]` | List saved accounts |
 | `lairen show <ref>` | Show one account and its local usage metadata |
 | `lairen deploy <ref> --home PATH` | Write a saved credential into a target home |
+| `lairen scan DIR [--depth N] [--provider P] [--register] [--json]` | Discover Codex/Kimi homes |
 | `lairen usage [ref ...] [--json]` | Expiry/usage statistics (alias: `stats`) |
 | `lairen remove <ref> --yes` | Remove an account from the registry and store |
 | `lairen providers` | Show provider defaults, tested status, and notes |
@@ -170,6 +199,8 @@ active homes at once; prefer one active home per saved session.
   the official CLI.
 - `claude`, `commandcode`, `cursor`, and `opencode` are experimental until
   live-credential tests are added.
+- `scan` skips symlinked directories and reports any directory with a matching
+  credential file, including backup copies; `--register` keeps the newest copy.
 
 ## License
 
