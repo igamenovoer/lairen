@@ -11,7 +11,7 @@ project-local directories, holder directories, or throwaway worktrees.
 
 !!! note "Project status"
 
-    lairen is at `0.1.x`. The Codex and Kimi Code adapters are covered by
+    lairen is at `1.x`. The Codex and Kimi Code adapters are covered by
     live-credential tests. The `claude`, `commandcode`, `cursor`, and
     `opencode` adapters are implemented against their upstream storage layouts
     but remain experimental until live-credential tests exist.

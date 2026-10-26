@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lairen"
-version = "0.2.0"
+version = "1.0.0"
 description = "Store CLI-agent credentials and deploy them into target homes."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,7 +25,7 @@ Homepage = "https://igamenovoer.github.io/lairen/"
 Documentation = "https://igamenovoer.github.io/lairen/"
 Repository = "https://github.com/igamenovoer/lairen"
 Issues = "https://github.com/igamenovoer/lairen/issues"
-Changelog = "https://github.com/igamenovoer/lairen/releases"
+Changelog = "https://github.com/igamenovoer/lairen/blob/main/CHANGELOG.md"
 
 [project.scripts]
 lairen = "lairen.cli:main"
