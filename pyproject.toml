@@ -37,6 +37,7 @@ pytest = ">=8"
 pytest-xdist = ">=3"
 ruff = ">=0.6"
 mypy = ">=1.10"
+python-build = ">=1.2"
 
 [tool.pixi.pypi-dependencies]
 lairen = { path = ".", editable = true }
@@ -45,6 +46,7 @@ lairen = { path = ".", editable = true }
 test-core = "python -m pytest tests/core/unit tests/core/integration"
 test-aux = "python -m pytest tests/aux/unit tests/aux/integration"
 test = { depends-on = ["test-core", "test-aux"] }
+build = "python -m build"
 lint = "ruff check src tests"
 fmt = "ruff format src tests"
 typecheck = "mypy src"
