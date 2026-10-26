@@ -44,6 +44,7 @@ lairen usage codex/alice@example.com --json
   {
     "ref": "codex/alice@example.com",
     "provider": "codex",
+    "alias": "work",
     "label": "alice@example.com",
     "last_deployed_at": "2026-10-26T12:00:00+00:00",
     "expires_at": "2026-11-25T12:00:00+00:00",
@@ -99,6 +100,7 @@ lairen show codex/alice@example.com
     "id": "alice@example.com",
     "label": "alice@example.com",
     "source_home": "/home/alice/code/project-a/.codex",
+    "alias": "work",
     "created_at": "2026-10-26T12:00:00+00:00",
     "last_deployed_at": "2026-10-26T12:00:00+00:00",
     "last_deployed_home": "/home/alice/code/project-b/.codex",

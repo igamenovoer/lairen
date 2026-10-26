@@ -41,6 +41,12 @@ project-local directories, holder directories, or throwaway worktrees.
     Kimi identities include the device session, so two logins of the same
     account stay separately addressable as `user_id--device_id`.
 
+-   :material-tag: **Stable aliases**
+
+    ---
+
+    Give long Kimi session refs a short handle that works anywhere a ref does.
+
 -   :material-clock-outline: **Inspect expiry locally**
 
     ---

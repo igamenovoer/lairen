@@ -85,6 +85,10 @@ MODEL
     codex/alice@example.com
     kimi/user-123--device-456
 
+  An account can carry a short alias:
+    lairen alias kimi/user-123--device-456 kimi-a
+    lairen deploy kimi-a --home ~/code/project/.kimi-code
+
 CORE COMMANDS
   lairen scan ~/code --depth 2
   lairen register codex --home ~/code/project-a/.codex
@@ -108,22 +112,22 @@ NEXT
 """
 
 _COMMANDS = f"""\
-Refs are provider/id, or a bare id or label when exactly one account matches.
+Refs are provider/id, a unique alias, a bare id, or a label when unique.
 
 register - save the live login from a provider home
-  usage: lairen register PROVIDER [--home PATH] [--label TEXT]
+  usage: lairen register PROVIDER [--home PATH] [--label TEXT] [--alias TEXT]
   providers: {", ".join(sorted(PROVIDERS))}
   examples:
     lairen register codex --home ~/code/project-a/.codex
-    lairen register kimi --home ~/kimi-homes/kimi-1 --label lease-1
-  note: re-registering the same provider/id replaces its metadata and blob.
+    lairen register kimi --home ~/kimi-homes/kimi-1 --label lease-1 --alias kimi-1
+  note: re-registration replaces the blob but preserves an existing alias.
 
 list - list saved accounts
   usage: lairen list [--json]
   examples:
     lairen list
     lairen list --json
-  columns: REF, LABEL, SOURCE, LAST DEPLOYED
+  columns: REF, ALIAS, LABEL, SOURCE, LAST DEPLOYED
 
 show - show one account and its local usage metadata
   usage: lairen show REF
@@ -156,6 +160,15 @@ remove - delete an account and its stored credential
   example:
     lairen remove codex/alice@example.com --yes
   note: deployed homes and snapshots are not touched.
+
+alias - set, clear, or list stable account handles
+  usage: lairen alias [REF] [NAME] [--clear] [--json]
+  examples:
+    lairen alias kimi/user-1--device-1 kimi-1
+    lairen alias kimi-1
+    lairen alias --json
+    lairen alias kimi-1 --clear
+  note: aliases are unique and resolve before ids and labels.
 
 providers - list adapters, homes, and tested status
   usage: lairen providers
@@ -206,6 +219,10 @@ _WORKFLOWS = """\
 
 8. Remove a stale account
    lairen remove kimi/user-1--device-2 --yes
+
+9. Alias long Kimi refs
+   lairen alias 'kimi/dalvfss95eb18ppo13d0--23702bf7-c85b-4787-8e76-24a6e198653e' kimi-default
+   lairen deploy kimi-default --home ~/code/project/.kimi-code
 """
 
 _PROVIDERS = f"""\
@@ -270,13 +287,17 @@ COMMANDS WITH JSON
   lairen manual all --json    {version, topics: [{topic, title, text}]}
 
 LIST RECORD
-  {"ref", "provider", "id", "label", "source_home", "created_at",
+  {"ref", "provider", "id", "label", "source_home", "alias", "created_at",
    "last_deployed_at", "last_deployed_home", "extra"}
 
 USAGE RECORD
-  {"ref", "provider", "label", "last_deployed_at", "expires_at",
+  {"ref", "provider", "alias", "label", "last_deployed_at", "expires_at",
    "expires_in_seconds", "expires_in", "usage": {...}}
   A missing blob produces {"ref", ..., "error": "credential blob missing"}.
+
+ALIAS JSON
+  lairen alias --json        [{"ref", "alias"}]
+  lairen alias REF --json    {"ref", "alias"}
 
 SCAN HIT
   {"provider", "ref", "label", "home", "credential", "depth"}

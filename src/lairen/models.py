@@ -14,6 +14,7 @@ class Account:
     id: str
     label: str
     source_home: str
+    alias: str | None = None
     created_at: str = field(default_factory=utc_now)
     last_deployed_at: str | None = None
     last_deployed_home: str | None = None
@@ -29,6 +30,7 @@ class Account:
             "id": self.id,
             "label": self.label,
             "source_home": self.source_home,
+            "alias": self.alias,
             "created_at": self.created_at,
             "last_deployed_at": self.last_deployed_at,
             "last_deployed_home": self.last_deployed_home,
@@ -42,6 +44,7 @@ class Account:
             id=data["id"],
             label=data.get("label") or data["id"],
             source_home=data.get("source_home", ""),
+            alias=data.get("alias"),
             created_at=data.get("created_at") or utc_now(),
             last_deployed_at=data.get("last_deployed_at"),
             last_deployed_home=data.get("last_deployed_home"),

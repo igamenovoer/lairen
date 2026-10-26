@@ -8,20 +8,22 @@ codex/alice@example.com
 kimi/u_123--d_456
 ```
 
-Refs are what `show`, `deploy`, `usage`, and `remove` accept. The registry
-stores the provider and id separately and derives the ref from them.
+Refs are what `show`, `deploy`, `usage`, `remove`, and `alias` accept. The
+registry stores the provider and id separately and derives the ref from them.
 
 ## How refs resolve
 
 When a command receives a ref, lairen resolves it in this order:
 
 1. **Explicit form** `provider/id`: matches the provider and id exactly.
-2. **Bare id**: matches any account whose id equals the argument.
-3. **Label**: matches any account whose label equals the argument.
+2. **Alias**: matches the account's unique alias.
+3. **Bare id**: matches any account whose id equals the argument.
+4. **Label**: matches any account whose label equals the argument.
 
-The bare forms succeed only when exactly one account matches. If several
-accounts share an id or label, lairen stops with an ambiguity error and lists
-the full refs:
+Any of these forms is accepted by `show`, `deploy`, `usage`, `remove`, and the
+alias and manual commands that take a ref. The short forms succeed only when
+exactly one account matches. If several accounts share the token, lairen stops
+with an ambiguity error and lists the full refs:
 
 ```text
 Error: ambiguous account 'alice'; use one of: codex/alice@example.com, kimi/alice
@@ -29,9 +31,44 @@ Error: ambiguous account 'alice'; use one of: codex/alice@example.com, kimi/alic
 
 Use the full `provider/id` when in doubt.
 
+## Aliases
+
+An alias is a stable, user-chosen handle for an account. It exists so long Kimi
+session refs and repeated project paths do not have to be retyped:
+
+```bash
+lairen alias 'kimi/u_123--d_456' kimi-1
+lairen deploy kimi-1 --home ~/code/project/.kimi-code
+```
+
+Manage aliases with the same command:
+
+```bash
+lairen alias kimi-1              # show the alias for an account
+lairen alias --json              # list every alias
+lairen alias kimi-1 --clear      # remove it
+```
+
+Rules:
+
+- An alias must start with a letter or digit and may contain letters, digits,
+  `.`, `_`, `+`, `@`, and `-`. It is at most 64 characters, is case-sensitive,
+  and cannot contain `/` or whitespace.
+- An alias must be unique. It is rejected if it equals another account's alias,
+  id, or label.
+- Aliases take precedence over bare ids and labels during resolution. The
+  explicit `provider/id` form is always exact and unaffected.
+- Re-registering an account with `register` or `scan --register` preserves its
+  alias. `register --alias NAME` sets or replaces it.
+- The alias is stored in the registry as the optional `alias` field. It is not
+  secret and does not affect credential storage.
+
+## Labels
+
 Labels are display names. They are not unique, and changing a label never
 changes the stored id. `register --label NAME` sets a label at registration
-time; the default label comes from the provider's identity extraction.
+time; the default label comes from the provider's identity extraction. Labels
+remain useful for `list` output and for resolution when no alias exists.
 
 ## How each provider derives an id
 

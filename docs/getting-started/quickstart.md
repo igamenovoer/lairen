@@ -29,12 +29,15 @@ See [Scan for accounts](../guides/scanning.md) for pattern details and
 ## 2. Register the login you want to keep
 
 ```bash
-lairen register codex --home ~/code/project-a/.codex
+lairen register codex --home ~/code/project-a/.codex --alias work
 ```
 
 ```text
-registered codex/alice@example.com  label=alice@example.com  source=/home/alice/code/project-a/.codex
+registered codex/alice@example.com  label=alice@example.com  source=/home/alice/code/project-a/.codex  alias=work
 ```
+
+The alias is optional. It gives the account a stable short handle that works
+anywhere a ref does. Manage aliases later with `lairen alias`.
 
 lairen reads `auth.json`, derives an account id from the token claims, and
 stores the credential blob in its own store. The source home is left untouched.
@@ -76,6 +79,12 @@ snapshot: /home/alice/.local/share/lairen/state/snapshots/codex-20261026T1200000
 
 If the target file already existed, lairen saved a copy in its snapshot
 directory before replacing it. Pass `--no-backup` to skip the snapshot.
+
+The alias `work` addresses the same account, so this is equivalent:
+
+```bash
+lairen deploy work --home ~/code/project-b/.codex
+```
 
 You can also use a bare unique id or label:
 

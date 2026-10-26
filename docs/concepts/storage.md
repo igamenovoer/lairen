@@ -49,6 +49,7 @@ change which provider home `register` reads or where `deploy` writes.
     "id": "alice@example.com",
     "label": "alice@example.com",
     "source_home": "/home/alice/code/project-a/.codex",
+    "alias": "work",
     "created_at": "2026-10-26T12:00:00+00:00",
     "last_deployed_at": "2026-10-26T12:05:00+00:00",
     "last_deployed_home": "/home/alice/code/project-b/.codex",
@@ -61,9 +62,10 @@ change which provider home `register` reads or where `deploy` writes.
 ]
 ```
 
-`extra` is provider-specific and never contains access or refresh tokens. It
-can contain an email address, account identifiers, or a device id, so treat the
-registry as private even though it holds no secrets.
+`alias` is optional and holds the user-chosen short handle. `extra` is
+provider-specific and never contains access or refresh tokens. It can contain
+an email address, account identifiers, or a device id, so treat the registry as
+private even though it holds no secrets.
 
 Writes go through a temporary file, `fsync`, and `os.replace`, so a crash does
 not leave a half-written registry.

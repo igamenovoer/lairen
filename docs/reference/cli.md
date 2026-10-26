@@ -22,12 +22,13 @@ Commands:
 | [`scan`](#scan) | Discover Codex and Kimi credential homes. |
 | [`usage`](#usage) | Show expiry and usage statistics. |
 | [`remove`](#remove) | Remove an account and its stored credential. |
+| [`alias`](#alias) | Set, clear, or list stable account aliases. |
 | [`providers`](#providers) | Show provider defaults and adapter status. |
 | [`doctor`](#doctor) | Show resolved paths, counts, and provider homes. |
 | [`manual`](#manual) | Agent-oriented usage manual with examples. |
 
-Refs are `provider/id`, a unique bare id, or a unique label. See
-[Identities and refs](../concepts/identities.md).
+Refs are `provider/id`, a unique alias, a unique bare id, or a unique label.
+See [Identities and refs](../concepts/identities.md).
 
 ## register
 
@@ -42,19 +43,21 @@ blob. The source home is not modified.
 |---|---|
 | `--home PATH` | Provider home to read. Falls back to the provider environment variable, then the default home. |
 | `--label TEXT` | Override the display label. |
+| `--alias TEXT` | Set a stable short handle for the account. |
 
 ```bash
 lairen register codex --home ~/code/project-a/.codex
-lairen register kimi --home ~/kimi-homes/kimi-1 --label "kimi-lease-1"
+lairen register kimi --home ~/kimi-homes/kimi-1 --label "kimi-lease-1" --alias kimi-1
 ```
 
 Output:
 
 ```text
-registered <ref>  label=<label>  source=<home>
+registered <ref>  label=<label>  source=<home>[  alias=<alias>]
 ```
 
-Registering an existing `provider/id` replaces its metadata and blob.
+Registering an existing `provider/id` replaces its metadata and blob but keeps
+an existing alias unless `--alias` is given.
 
 For experimental providers, a warning is printed to stderr.
 
@@ -67,7 +70,7 @@ lairen list [--json]
 Prints saved accounts, sorted by provider and id:
 
 ```text
-REF  LABEL  SOURCE  LAST DEPLOYED
+REF  ALIAS  LABEL  SOURCE  LAST DEPLOYED
 ```
 
 | Option | Meaning |
@@ -84,6 +87,7 @@ JSON output is a list of account objects with an added `ref` field:
     "id": "alice@example.com",
     "label": "alice@example.com",
     "source_home": "/home/alice/code/project-a/.codex",
+    "alias": "work",
     "created_at": "2026-10-26T12:00:00+00:00",
     "last_deployed_at": null,
     "last_deployed_home": null,
@@ -196,6 +200,36 @@ snapshots, and source homes are not touched.
 ```bash
 lairen remove codex/alice@example.com --yes
 ```
+
+## alias
+
+```text
+lairen alias [REF] [NAME] [--clear] [--json]
+```
+
+Manages stable short handles for accounts:
+
+```bash
+lairen alias 'kimi/u_123--d_456' kimi-1   # set or rename
+lairen alias kimi-1                       # show one alias
+lairen alias --json                       # list every alias
+lairen alias kimi-1 --clear               # remove
+```
+
+| Argument or option | Meaning |
+|---|---|
+| `REF` | Account to inspect or update. Omit to list all aliases. |
+| `NAME` | New alias. Omit with `REF` to show the current alias. |
+| `--clear` | Remove the alias from `REF`. |
+| `--json` | Emit `[{"ref", "alias"}]` when listing, or `{"ref", "alias"}` when showing one. |
+
+Alias rules:
+
+- Must start with a letter or digit; may contain letters, digits, `.`, `_`,
+  `+`, `@`, and `-`; at most 64 characters; case-sensitive.
+- Must be unique across aliases, account ids, and labels.
+- Resolves before bare ids and labels. `provider/id` remains exact.
+- Survives re-registration unless `register --alias` changes it.
 
 ## providers
 

@@ -79,13 +79,14 @@ Codex and Kimi are the tested paths:
 lairen register codex --home ~/codex-holder/.codex
 
 # Register a Kimi home (reads credentials/kimi-code.json)
-lairen register kimi --home ~/kimi-homes/kimi-2064-1
+lairen register kimi --home ~/kimi-homes/kimi-2064-1 --alias kimi-2064-1
 
 # List saved identities
 lairen list
 
 # Deploy a saved login into a project-local home
 lairen deploy codex/alice@example.com --home ./my-project/.codex
+lairen deploy kimi-2064-1 --home ./my-project/.kimi-code
 
 # Usage / expiry report (alias: stats)
 lairen usage
@@ -148,19 +149,22 @@ target from an environment variable.
 
 | Command | Purpose |
 |---|---|
-| `lairen register <provider> [--home PATH] [--label NAME]` | Save the live login from a provider home |
+| `lairen register <provider> [--home PATH] [--label NAME] [--alias NAME]` | Save the live login from a provider home |
 | `lairen list [--json]` | List saved accounts |
 | `lairen show <ref>` | Show one account and its local usage metadata |
 | `lairen deploy <ref> --home PATH` | Write a saved credential into a target home |
 | `lairen scan DIR [--depth N] [--provider P] [--register] [--json]` | Discover Codex/Kimi homes |
 | `lairen usage [ref ...] [--json]` | Expiry/usage statistics (alias: `stats`) |
 | `lairen remove <ref> --yes` | Remove an account from the registry and store |
+| `lairen alias [ref] [name] [--clear] [--json]` | Set, clear, or list stable account aliases |
 | `lairen providers` | Show provider defaults, tested status, and notes |
 | `lairen doctor` | Show resolved paths, account counts, and provider homes |
 | `lairen manual [topic] [--json]` | Agent-oriented manual; `manual all` loads the full guide |
 
 `<ref>` is `provider/id` (for example `codex/alice@example.com` or
-`kimi/alice--<device-id>`). A bare id or label is accepted when it is unique.
+`kimi/alice--<device-id>`). A unique alias, bare id, or label is also accepted;
+aliases resolve before ids and labels. Aliases are unique, survive
+re-registration, and can be managed with `lairen alias`.
 
 Agents can load the complete usage guide in one call:
 
@@ -173,7 +177,7 @@ lairen manual all --json
 
 ```
 ~/.config/lairen/
-  registry.json          # account metadata: provider, id, label, source
+  registry.json          # account metadata: provider, id, label, alias, source
 ~/.local/share/lairen/
   credentials.json       # credential blobs, mode 0600
   state/snapshots/       # pre-deploy copies of overwritten target files

@@ -36,11 +36,13 @@ standard name.
 
 ```bash
 lairen deploy codex/alice@example.com --home ./project/.codex
+lairen deploy work --home ./project/.codex
 lairen deploy 'alice@example.com' --home ./project/.codex
 ```
 
-The full `provider/id` form is the only unambiguous choice when ids or labels
-collide.
+`work` is an alias, `alice@example.com` is a bare id or label. Aliases resolve
+before ids and labels; the full `provider/id` form is always exact and is the
+only unambiguous choice when short handles collide.
 
 ## What deploy does
 

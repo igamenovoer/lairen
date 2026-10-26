@@ -88,24 +88,37 @@ def cli() -> None:
     help="provider home to read from (falls back to the provider env var or default)",
 )
 @click.option("--label", help="override the display label")
-def register(provider: str, home: Path | None, label: str | None) -> None:
+@click.option("--alias", "alias_name", help="stable short handle for the account")
+def register(
+    provider: str,
+    home: Path | None,
+    label: str | None,
+    alias_name: str | None,
+) -> None:
     """Save the live login from a provider home."""
     adapter = get_provider(provider)
     _warn_experimental(provider)
     home_path = adapter.resolve_home(home)
     blob = adapter.read_live(home_path)
     identity = adapter.parse_identity(home_path, blob)
+    _, registry, store = _context()
+    alias = (
+        registry.validate_alias(alias_name, adapter.name, identity.id)
+        if alias_name
+        else None
+    )
     account = Account(
         provider=adapter.name,
         id=identity.id,
         label=label or identity.label,
         source_home=str(home_path),
+        alias=alias,
         extra=identity.extra,
     )
-    _, registry, store = _context()
     store.set(adapter.name, account.id, blob)
     registry.upsert(account)
-    click.echo(f"registered {account.ref}  label={account.label}  source={home_path}")
+    suffix = f"  alias={account.alias}" if account.alias else ""
+    click.echo(f"registered {account.ref}  label={account.label}  source={home_path}{suffix}")
 
 
 @cli.command(name="list")
@@ -128,13 +141,14 @@ def list_accounts(json_output: bool) -> None:
     rows = [
         (
             account.ref,
+            account.alias or "-",
             account.label,
             account.source_home or "-",
             account.last_deployed_at or "-",
         )
         for account in accounts
     ]
-    _print_table(("REF", "LABEL", "SOURCE", "LAST DEPLOYED"), rows)
+    _print_table(("REF", "ALIAS", "LABEL", "SOURCE", "LAST DEPLOYED"), rows)
 
 
 @cli.command()
@@ -214,6 +228,7 @@ def usage(refs: tuple[str, ...], json_output: bool) -> None:
         record: dict[str, Any] = {
             "ref": account.ref,
             "provider": account.provider,
+            "alias": account.alias,
             "label": account.label,
             "last_deployed_at": account.last_deployed_at,
         }
@@ -268,6 +283,62 @@ def remove(ref: str, yes: bool) -> None:
     store.delete(account.provider, account.id)
     registry.remove(account.provider, account.id)
     click.echo(f"removed {account.ref}")
+
+
+@cli.command()
+@click.argument("ref", required=False)
+@click.argument("name", required=False)
+@click.option("--clear", "clear_alias", is_flag=True, help="remove the alias from REF")
+@click.option("--json", "json_output", is_flag=True, help="emit machine-readable JSON")
+def alias(
+    ref: str | None,
+    name: str | None,
+    clear_alias: bool,
+    json_output: bool,
+) -> None:
+    """Set, clear, or list stable account aliases."""
+    _, registry, _ = _context()
+    if ref is None:
+        if name or clear_alias:
+            raise LairenError("provide REF when setting or clearing an alias")
+        aliases = [
+            {"ref": account.ref, "alias": account.alias}
+            for account in registry.list()
+            if account.alias
+        ]
+        if json_output:
+            click.echo(json.dumps(aliases, indent=2))
+            return
+        if not aliases:
+            click.echo("no aliases; run `lairen alias <ref> <name>`")
+            return
+        _print_table(
+            ("ALIAS", "REF"),
+            [(item["alias"], item["ref"]) for item in aliases],
+        )
+        return
+
+    account = registry.resolve(ref)
+    if clear_alias:
+        if name:
+            raise LairenError("cannot combine a name with --clear")
+        if not account.alias:
+            raise LairenError(f"{account.ref} has no alias")
+        registry.clear_alias(account.provider, account.id)
+        click.echo(f"cleared alias for {account.ref}")
+        return
+    if name is None:
+        if json_output:
+            click.echo(
+                json.dumps({"ref": account.ref, "alias": account.alias}, indent=2)
+            )
+        elif account.alias:
+            click.echo(account.alias)
+        else:
+            click.echo(f"{account.ref} has no alias")
+        return
+    updated = registry.set_alias(account.provider, account.id, name)
+    click.echo(f"aliased {updated.ref} -> {updated.alias}")
 
 
 @cli.command()

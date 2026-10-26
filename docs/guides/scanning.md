@@ -132,7 +132,7 @@ Notes:
 - `--json` is ignored when `--register` is present; registration has already
   happened by the time output would be emitted.
 - Re-registering an existing `provider/id` updates its metadata and credential
-  blob. It does not create a duplicate.
+  blob. It does not create a duplicate, and an existing alias is preserved.
 - Backup copies are valid candidates. Because the newest copy wins, scan a tree
   that contains the copy you actually want to keep, or register the intended
   home explicitly with `lairen register`.
