@@ -125,6 +125,20 @@ lairen remove codex/alice@example.com --yes
 This deletes both the registry record and the stored credential blob. It does
 not touch any deployed home or snapshot.
 
+## Check a project
+
+`lairen status` reads a project's live provider homes and reports which accounts
+are in use, their aliases and expiry, and which other projects hold them:
+
+```bash
+cd ~/code/project-b
+lairen status
+lairen status --json
+lairen status --strict      # exit 1 for unregistered, invalid, or drifted
+```
+
+See the [status reference](../reference/cli.md#status).
+
 ## A complete project swap
 
 To move the active Codex identity from project A to project B while keeping A's

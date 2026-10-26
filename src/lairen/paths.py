@@ -43,5 +43,9 @@ class Paths:
         return self.data_dir / "credentials.json"
 
     @property
+    def deployments_path(self) -> Path:
+        return self.state_dir / "deployments.jsonl"
+
+    @property
     def snapshots_dir(self) -> Path:
         return self.state_dir / "snapshots"

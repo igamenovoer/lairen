@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,11 +15,13 @@ import click
 
 from lairen import __version__
 from lairen import manual as manual_content
+from lairen.deployments import DeploymentLog, project_root_for_home
 from lairen.errors import LairenError
 from lairen.models import Account
 from lairen.paths import Paths
 from lairen.providers import PROVIDERS, get_provider
 from lairen.scan import best_per_account, scan_accounts
+from lairen.status import AccountStatus, ProjectReport, inspect_project
 from lairen.store import CredentialStore, Registry
 from lairen.util import epoch_to_iso, format_remaining, utc_now
 
@@ -40,11 +43,20 @@ def _context() -> tuple[Paths, Registry, CredentialStore]:
     return paths, Registry(paths.registry_path), CredentialStore(paths.credentials_path)
 
 
+def _display_width(value: Any) -> int:
+    return len(click.unstyle(str(value)))
+
+
+def _pad_cell(value: Any, width: int) -> str:
+    text = str(value)
+    return text + " " * (width - _display_width(text))
+
+
 def _print_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> None:
     widths = [len(header) for header in headers]
     for row in rows:
         for index, cell in enumerate(row):
-            widths[index] = max(widths[index], len(str(cell)))
+            widths[index] = max(widths[index], _display_width(cell))
     click.echo(
         "  ".join(
             header.ljust(width)
@@ -55,7 +67,7 @@ def _print_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> None:
     for row in rows:
         click.echo(
             "  ".join(
-                str(cell).ljust(width)
+                _pad_cell(cell, width)
                 for cell, width in zip(row, widths, strict=True)
             )
         )
@@ -80,6 +92,117 @@ def _label_tracks_identity(account: Account, old_id: str) -> bool:
         and str(account.extra[key]) == account.label
         for key in ("email", "user_id")
     )
+
+
+def _style_alias(alias: str) -> str:
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return alias
+    return click.style(alias, fg="yellow", bold=True)
+
+
+def _record_deployment(
+    paths: Paths,
+    action: str,
+    account: Account,
+    *,
+    home: str | None = None,
+    source_home: str | None = None,
+    previous_ref: str | None = None,
+) -> None:
+    home_value = str(Path(home).expanduser().resolve()) if home else None
+    source_value = (
+        str(Path(source_home).expanduser().resolve()) if source_home else None
+    )
+    entry: dict[str, object] = {
+        "ts": utc_now(),
+        "action": action,
+        "provider": account.provider,
+        "ref": account.ref,
+        "alias": account.alias,
+        "project": project_root_for_home(home_value) if home_value else None,
+        "home": home_value,
+        "source_home": source_value,
+        "previous_ref": previous_ref,
+    }
+    try:
+        DeploymentLog(paths.deployments_path).append(
+            {key: value for key, value in entry.items() if value is not None}
+        )
+    except OSError as exc:
+        click.echo(f"warning: cannot write deployment log: {exc}", err=True)
+
+
+def _other_projects(item: AccountStatus) -> str:
+    names: list[str] = []
+    for lease in item.leases:
+        label = lease.project or lease.home
+        if lease.legacy:
+            label = f"{label} (last deploy)"
+        if lease.live is False:
+            label = f"{label} (overwritten)"
+        if label not in names:
+            names.append(label)
+    return ", ".join(names) if names else "-"
+
+
+def _status_detail(item: AccountStatus) -> None:
+    if item.state == "invalid":
+        click.echo(f"invalid: {item.credential}: {item.error}")
+    elif item.state == "unregistered":
+        click.echo(f"unregistered: {item.ref}  {item.credential}")
+        click.echo(
+            f"  register: lairen register {item.provider} --home {item.home}"
+        )
+    elif item.state == "drifted":
+        if item.registry_expires_at == item.expires_at:
+            click.echo(
+                f"drifted: {item.ref}  project credential differs from the "
+                "registry copy"
+            )
+        else:
+            registry = item.registry_expires_at or "unknown"
+            click.echo(
+                f"drifted: {item.ref}  project expires {item.expires_at}; "
+                f"registry expires {registry}"
+            )
+    elif item.state == "missing-store-blob":
+        click.echo(
+            f"missing registry blob: {item.ref}; re-register or update the account"
+        )
+    elif item.state == "no-login":
+        click.echo(f"no login: {item.home}")
+
+
+def _render_status(report: ProjectReport) -> None:
+    click.echo(f"project: {report.project}")
+    if not report.accounts:
+        click.echo("no provider homes found (looked for .codex, .kimi-code)")
+        return
+
+    rows: list[tuple[Any, ...]] = []
+    for item in report.accounts:
+        expires = (
+            format_remaining(item.expires_in_seconds)
+            if item.expires_in_seconds is not None
+            else "-"
+        )
+        alias = _style_alias(item.alias) if item.alias else "-"
+        rows.append(
+            (
+                item.provider,
+                item.ref or "-",
+                alias,
+                expires,
+                item.state,
+                _other_projects(item),
+            )
+        )
+    _print_table(
+        ("PROVIDER", "ACCOUNT", "ALIAS", "ACCESS EXPIRES", "STATE", "OTHER PROJECTS"),
+        rows,
+    )
+    for item in report.accounts:
+        _status_detail(item)
 
 
 @click.group(
@@ -143,11 +266,11 @@ def register(
 @click.option("--label", help="override the display label")
 def update(ref: str, home: Path, label: str | None) -> None:
     """Replace a saved account's credential from a provider home."""
-    _, registry, store = _context()
+    paths, registry, store = _context()
     account = registry.resolve(ref)
     adapter = get_provider(account.provider)
     _warn_experimental(account.provider)
-    home_path = adapter.resolve_home(home)
+    home_path = adapter.resolve_home(home).resolve()
     blob = adapter.read_live(home_path)
     identity = adapter.parse_identity(home_path, blob)
     old_id = account.id
@@ -181,6 +304,13 @@ def update(ref: str, home: Path, label: str | None) -> None:
     registry.replace(account.provider, old_id, account)
     if new_id != old_id:
         store.delete(account.provider, old_id)
+    _record_deployment(
+        paths,
+        "update",
+        account,
+        source_home=str(home_path),
+        previous_ref=old_ref if new_id != old_id else None,
+    )
 
     suffix = f"  alias={account.alias}" if account.alias else ""
     if new_id == old_id:
@@ -256,7 +386,7 @@ def deploy(ref: str, home: Path, no_backup: bool) -> None:
     if blob is None:
         raise LairenError(f"credential blob missing for {account.ref}")
     adapter = get_provider(account.provider)
-    target_home = adapter.resolve_home(home)
+    target_home = adapter.resolve_home(home).resolve()
     target_path = adapter.credential_path_for(target_home)
 
     snapshot: Path | None = None
@@ -275,6 +405,13 @@ def deploy(ref: str, home: Path, no_backup: bool) -> None:
     account.last_deployed_at = utc_now()
     account.last_deployed_home = str(target_home)
     registry.upsert(account)
+    _record_deployment(
+        paths,
+        "deploy",
+        account,
+        home=str(target_home),
+        source_home=account.source_home,
+    )
     click.echo(f"deployed {account.ref} -> {written}")
     if snapshot is not None:
         click.echo(f"snapshot: {snapshot}")
@@ -348,10 +485,11 @@ def remove(ref: str, yes: bool) -> None:
     """Remove a saved account from the registry and credential store."""
     if not yes:
         raise LairenError("refusing to remove without --yes")
-    _, registry, store = _context()
+    paths, registry, store = _context()
     account = registry.resolve(ref)
     store.delete(account.provider, account.id)
     registry.remove(account.provider, account.id)
+    _record_deployment(paths, "remove", account, source_home=account.source_home)
     click.echo(f"removed {account.ref}")
 
 
@@ -527,6 +665,49 @@ def doctor() -> None:
         tested = "yes" if adapter.tested else "no"
         click.echo(
             f"[{adapter.name}] tested={tested} home={home} login={'yes' if login else 'no'}"
+        )
+
+
+@cli.command()
+@click.argument(
+    "directory",
+    required=False,
+    type=click.Path(path_type=Path, exists=True, file_okay=False),
+)
+@click.option(
+    "--provider",
+    "provider_filter",
+    multiple=True,
+    type=click.Choice(["codex", "kimi"]),
+    help="limit the report to a provider (repeatable)",
+)
+@click.option("--json", "json_output", is_flag=True, help="emit machine-readable JSON")
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="exit 1 when a project credential is unregistered, invalid, or drifted",
+)
+def status(
+    directory: Path | None,
+    provider_filter: tuple[str, ...],
+    json_output: bool,
+    strict: bool,
+) -> None:
+    """Show which accounts a project directory is using."""
+    paths = Paths.resolve()
+    project = directory or Path.cwd()
+    report = inspect_project(
+        project,
+        provider_filter or ("codex", "kimi"),
+        paths,
+    )
+    if json_output:
+        click.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        _render_status(report)
+    if strict and not report.ok:
+        raise LairenError(
+            f"strict status failed: {len(report.problems)} problem account(s)"
         )
 
 

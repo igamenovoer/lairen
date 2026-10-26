@@ -95,6 +95,7 @@ CORE COMMANDS
   lairen list --json
   lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
   lairen update codex/alice@example.com --home ~/code/project-a/.codex
+  lairen status ~/code/project-a
   lairen usage --json
 
 RULES
@@ -129,6 +130,14 @@ list - list saved accounts
     lairen list
     lairen list --json
   columns: REF, ALIAS, LABEL, SOURCE, LAST DEPLOYED
+
+status - show which accounts a project directory is using
+  usage: lairen status [DIRECTORY] [--provider codex|kimi] [--json] [--strict]
+  examples:
+    lairen status
+    lairen status ~/code/project-a --json
+    lairen status ~/code/project-a --strict
+  note: reads .codex and .kimi-code; leases come from the log and are checked.
 
 show - show one account and its local usage metadata
   usage: lairen show REF
@@ -235,6 +244,12 @@ _WORKFLOWS = """\
 10. Repair a retired login in one line
     lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
     # The alias survives; a changed device id changes the ref.
+
+11. Check what a project is using
+    cd ~/code/project-a
+    lairen status
+    lairen status ~/code/project-b --json
+    # --strict exits 1 for unregistered, invalid, or drifted credentials.
 """
 
 _PROVIDERS = f"""\
@@ -267,6 +282,7 @@ DEFAULT PATHS
   config  ${XDG_CONFIG_HOME:-~/.config}/lairen/registry.json
   data    ${XDG_DATA_HOME:-~/.local/share}/lairen/credentials.json  (0600)
   state   <data>/state/snapshots/<provider>-<UTC timestamp>/<relpath>
+          <data>/state/deployments.jsonl  (append-only deploy history)
 
 LAIREN_HOME
   LAIREN_HOME=/abs/root -> /abs/root/{config,data,state}
@@ -285,6 +301,11 @@ SNAPSHOTS
   never pruned automatically and are not encrypted. Skip with --no-backup.
   Restore: cp <snapshot> <target credential>; chmod 600 <target credential>.
 
+DEPLOYMENTS
+  deployments.jsonl is append-only and records deploy, update, and remove
+  events. status uses deploy entries to report other projects. No token
+  material is written.
+
 EXAMPLE
   LAIREN_HOME=/tmp/lairen-sandbox lairen register codex --home ~/code/p/.codex
   lairen doctor
@@ -296,6 +317,7 @@ COMMANDS WITH JSON
   lairen usage --json         list of usage records
   lairen show REF             {account, usage}
   lairen scan DIR --json      list of scan hits
+  lairen status DIR --json    {project, ok, accounts, warnings}
   lairen manual all --json    {version, topics: [{topic, title, text}]}
 
 LIST RECORD
@@ -313,6 +335,12 @@ ALIAS JSON
 
 SCAN HIT
   {"provider", "ref", "label", "home", "credential", "depth"}
+
+STATUS RECORD
+  {"provider", "ref", "alias", "label", "home", "credential", "state",
+   "expires_at", "expires_in_seconds", "registry_expires_at",
+   "registry_expires_in_seconds",
+   "leases": [{"project", "home", "deployed_at", "legacy", "live"}], "error"}
 
 TOPIC RECORD
   {"topic", "title", "text"}

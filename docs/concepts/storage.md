@@ -14,6 +14,7 @@ directories with mode `0700` and files with mode `0600`.
 | Credential store | `${XDG_DATA_HOME:-~/.local/share}/lairen/credentials.json` |
 | State | `~/.local/share/lairen/state/` |
 | Snapshots | `~/.local/share/lairen/state/snapshots/` |
+| Deployment log | `~/.local/share/lairen/state/deployments.jsonl` |
 
 `lairen doctor` prints the paths that are actually in effect.
 
@@ -33,6 +34,7 @@ The layout becomes:
   config/registry.json
   data/credentials.json
   data/state/snapshots/
+  data/state/deployments.jsonl
 ```
 
 `LAIREN_HOME` is a storage override, not a provider selector. It does not
@@ -112,6 +114,31 @@ For example:
 Snapshots are ordinary files with mode `0600`. They are never pruned
 automatically; delete old timestamp directories when you no longer need them.
 Use `--no-backup` to skip snapshot creation for a deployment.
+
+## Deployment log
+
+`<state>/deployments.jsonl` is an append-only JSON Lines history written by
+`deploy`, `update`, and `remove`. It records the account, alias, target home,
+source home, and timestamp. No token material is written.
+
+```json
+{
+  "ts": "2026-10-26T12:00:00+00:00",
+  "action": "deploy",
+  "provider": "codex",
+  "ref": "codex/alice@example.com",
+  "alias": "work",
+  "project": "/home/me/code/project-b",
+  "home": "/home/me/code/project-b/.codex",
+  "source_home": "/home/me/code/project-a/.codex"
+}
+```
+
+`lairen status` uses deploy entries to report which other projects hold an
+account, checking each target's current credential and marking overwritten
+targets. History starts when this log is first written; older accounts fall
+back to the single `last_deployed_home` registry field and are marked as a
+legacy last deploy.
 
 ## Provider home resolution
 

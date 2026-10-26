@@ -55,6 +55,8 @@ only unambiguous choice when short handles collide.
    into an existing structure (see below).
 6. Writes atomically with mode `0600`.
 7. Records `last_deployed_at` and `last_deployed_home` in the registry.
+8. Appends a `deploy` entry to the deployment log, which
+   [`lairen status`](../reference/cli.md#status) uses for lease reporting.
 
 Output:
 

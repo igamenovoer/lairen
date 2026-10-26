@@ -21,6 +21,7 @@ Commands:
 | [`show`](#show) | Show one account and its local usage metadata. |
 | [`deploy`](#deploy) | Write a saved credential into a target home. |
 | [`scan`](#scan) | Discover Codex and Kimi credential homes. |
+| [`status`](#status) | Show which accounts a project directory is using. |
 | [`usage`](#usage) | Show expiry and usage statistics. |
 | [`remove`](#remove) | Remove an account and its stored credential. |
 | [`alias`](#alias) | Set, clear, or list stable account aliases. |
@@ -205,6 +206,83 @@ lairen scan ~/code --depth 2 --register
 Table columns are `PROVIDER`, `REF`, `HOME`, and `DEPTH`. JSON fields are
 `provider`, `ref`, `label`, `home`, `credential`, and `depth`. See
 [Scan for accounts](../guides/scanning.md) for patterns and duplicate handling.
+
+## status
+
+```text
+lairen status [DIRECTORY] [--provider codex|kimi] [--json] [--strict]
+```
+
+Shows which accounts a project directory is using. `DIRECTORY` defaults to the
+current directory. lairen reads the project's live credentials rather than the
+registry, so manually copied credentials appear too.
+
+Project homes:
+
+| Provider | Home | Credential |
+|---|---|---|
+| `codex` | `<project>/.codex` | `auth.json` |
+| `kimi` | `<project>/.kimi-code` | `credentials/*.json` |
+
+Passing a provider home itself, such as `~/.kimi-code`, inspects that home.
+
+| Option | Meaning |
+|---|---|
+| `--provider [codex\|kimi]` | Limit the report to one provider. Repeatable. |
+| `--json` | Emit the report as JSON. |
+| `--strict` | Exit `1` when a credential is unregistered, invalid, drifted, or has no stored blob. |
+
+```bash
+lairen status
+lairen status ~/code/project-a
+lairen status ~/code/project-a --json
+lairen status ~/code/project-a --strict
+```
+
+States:
+
+| State | Meaning |
+|---|---|
+| `current` | Registered and the project credential matches the stored blob. |
+| `drifted` | Registered identity, but the project blob differs from the store. |
+| `unregistered` | Valid credential with no registry record. |
+| `invalid` | Unreadable or unparseable credential. |
+| `missing-store-blob` | Registry record exists, but its stored blob is missing. |
+| `no-login` | The project home exists but contains no credential. |
+
+The `OTHER PROJECTS` column comes from the append-only deployment log and
+excludes the inspected home. Each target is checked against its current
+credential, so a target that now holds a different account is marked
+`(overwritten)`. Accounts recorded before the log existed fall back to the
+single `last_deployed_home` value, marked `(last deploy)`. The JSON `leases`
+entries carry `live: true|false|null`; `null` means no check was possible.
+
+JSON shape:
+
+```json
+{
+  "project": "/home/me/code/project-a",
+  "ok": true,
+  "accounts": [
+    {
+      "provider": "codex",
+      "ref": "codex/alice@example.com",
+      "alias": "work",
+      "label": "alice@example.com",
+      "home": "/home/me/code/project-a/.codex",
+      "credential": "/home/me/code/project-a/.codex/auth.json",
+      "state": "current",
+      "expires_at": "2026-11-25T12:00:00+00:00",
+      "expires_in_seconds": 2592000,
+      "registry_expires_at": "2026-11-25T12:00:00+00:00",
+      "registry_expires_in_seconds": 2592000,
+      "leases": [],
+      "error": null
+    }
+  ],
+  "warnings": []
+}
+```
 
 ## usage
 

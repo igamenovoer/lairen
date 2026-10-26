@@ -2,6 +2,19 @@
 
 All notable changes to lairen are documented here.
 
+## Unreleased
+
+### Added
+
+- `lairen status [DIRECTORY]` reports which accounts a project's `.codex` and
+  `.kimi-code` homes are using, including aliases, expiry, unregistered or
+  invalid credentials, drift from the registry, and other projects holding the
+  same account.
+- Append-only `state/deployments.jsonl` records deploy, update, and remove
+  events. `status` uses it for lease reporting; older deployments fall back to
+  `last_deployed_home`.
+- `status --json` and `status --strict` for scripts and CI.
+
 ## 1.1.0 - 2026-10-26
 
 Adds one-line credential updates for retired or refreshed logins.

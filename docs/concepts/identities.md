@@ -82,6 +82,18 @@ lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
 - `created_at` and deployment history are preserved. Existing deployed homes
   are not rewritten; deploy again to push the new credential to them.
 
+## Project leases
+
+`lairen status [DIRECTORY]` reads the project's live `.codex` and `.kimi-code`
+homes, matches each credential to the registry, and reports its state:
+`current`, `drifted`, `unregistered`, `invalid`, `missing-store-blob`, or
+`no-login`.
+
+Its `OTHER PROJECTS` column comes from the append-only
+[deployment log](storage.md#deployment-log), so `deploy`, `update`, and
+`remove` history is visible per account. Accounts deployed before the log
+existed fall back to `last_deployed_home` and are marked `(last deploy)`.
+
 ## Labels
 
 Labels are display names. They are not unique, and changing a label never

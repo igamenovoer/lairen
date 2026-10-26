@@ -91,6 +91,9 @@ lairen deploy kimi-2064-1 --home ./my-project/.kimi-code
 # Replace a stored credential from a new home, keeping the alias
 lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
 
+# Show which accounts a project is using, with aliases and other leases
+lairen status ~/my-project
+
 # Usage / expiry report (alias: stats)
 lairen usage
 lairen usage kimi/alice--device-id --json
@@ -158,6 +161,7 @@ target from an environment variable.
 | `lairen show <ref>` | Show one account and its local usage metadata |
 | `lairen deploy <ref> --home PATH` | Write a saved credential into a target home |
 | `lairen scan DIR [--depth N] [--provider P] [--register] [--json]` | Discover Codex/Kimi homes |
+| `lairen status [DIR] [--provider P] [--json] [--strict]` | Show which accounts a project is using |
 | `lairen usage [ref ...] [--json]` | Expiry/usage statistics (alias: `stats`) |
 | `lairen remove <ref> --yes` | Remove an account from the registry and store |
 | `lairen alias [ref] [name] [--clear] [--json]` | Set, clear, or list stable account aliases |
@@ -185,6 +189,7 @@ lairen manual all --json
 ~/.local/share/lairen/
   credentials.json       # credential blobs, mode 0600
   state/snapshots/       # pre-deploy copies of overwritten target files
+  state/deployments.jsonl # append-only deploy/update/remove history
 ```
 
 Set `LAIREN_HOME=/absolute/path` to keep config, data, and state under one
@@ -199,6 +204,9 @@ provider selection.
   and `os.replace`, with a pre-deploy snapshot when the target already exists.
   Provider-specific adapters merge rather than replace where upstream expects
   it (OpenCode Go slot, Cursor `ItemTable`, Claude `oauthAccount`).
+- **Project status reads live homes.** `lairen status` matches a project's
+  actual credentials against the registry and reports unregistered or drifted
+  copies. An append-only deployment log records which projects hold an account.
 - **Kimi identity is a session.** `user_id` plus `device_id`, joined as
   `user_id--device_id`, so multiple logins of one account remain distinct.
 - **Usage is local-first.** `lairen usage` reports token expiry and refresh

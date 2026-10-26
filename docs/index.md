@@ -108,9 +108,10 @@ Continue with the [Quick start](getting-started/quickstart.md).
 - [Installation](getting-started/installation.md): install and verify lairen.
 - [Quick start](getting-started/quickstart.md): register, deploy, and inspect a login.
 - [Identities and refs](concepts/identities.md): how accounts are keyed and resolved.
-- [Storage and paths](concepts/storage.md): where registry, credentials, and snapshots live.
+- [Storage and paths](concepts/storage.md): where registry, credentials, snapshots, and the deployment log live.
 - [Scan for accounts](guides/scanning.md): discover credential homes under a directory.
 - [Deploy credentials](guides/deploying.md): target resolution, snapshots, and merge behavior.
+- [Check a project](reference/cli.md#status): accounts in use, drift, and other project leases.
 - [CLI reference](reference/cli.md): every command, option, exit code, and the agent-oriented `lairen manual`.
 - [Provider reference](reference/providers.md): supported agents and their storage layouts.
 
