@@ -29,16 +29,39 @@ queries and OAuth refresh are the next milestones.
 
 ## Install
 
+Recommended with [`uv`](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install lairen
+lairen --help
+```
+
+Run it once without installing:
+
+```bash
+uvx lairen --help
+```
+
+Add it to an existing uv project:
+
+```bash
+uv add lairen
+```
+
+From a source checkout:
+
+```bash
+uv venv
+uv pip install -e .
+uv run lairen --help
+```
+
+For project development, use Pixi:
+
 ```bash
 pixi install
 pixi run lairen --help
-```
-
-A plain editable install works too:
-
-```bash
-python -m pip install -e .
-lairen --help
+pixi run test
 ```
 
 ## Quick start
@@ -47,20 +70,20 @@ Codex and Kimi are the tested paths:
 
 ```bash
 # Register a Codex home (reads auth.json, never prints tokens)
-pixi run lairen register codex --home ~/codex-holder/.codex
+lairen register codex --home ~/codex-holder/.codex
 
 # Register a Kimi home (reads credentials/kimi-code.json)
-pixi run lairen register kimi --home ~/kimi-homes/kimi-2064-1
+lairen register kimi --home ~/kimi-homes/kimi-2064-1
 
 # List saved identities
-pixi run lairen list
+lairen list
 
 # Deploy a saved login into a project-local home
-pixi run lairen deploy codex/alice@example.com --home ./my-project/.codex
+lairen deploy codex/alice@example.com --home ./my-project/.codex
 
 # Usage / expiry report (alias: stats)
-pixi run lairen usage
-pixi run lairen usage kimi/alice--device-id --json
+lairen usage
+lairen usage kimi/alice--device-id --json
 ```
 
 ## Scanning
@@ -68,10 +91,10 @@ pixi run lairen usage kimi/alice--device-id --json
 Discover Codex and Kimi credential homes under a directory:
 
 ```bash
-pixi run lairen scan ~/code --depth 2
-pixi run lairen scan ~/kimi-homes --depth 1 --provider kimi
-pixi run lairen scan ~/tmp/workspace --register
-pixi run lairen scan ~/code --depth 2 --json
+lairen scan ~/code --depth 2
+lairen scan ~/kimi-homes --depth 1 --provider kimi
+lairen scan ~/tmp/workspace --register
+lairen scan ~/code --depth 2 --json
 ```
 
 Depth `0` checks only the given directory; depth `1` (the default) also checks
