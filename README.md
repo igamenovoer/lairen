@@ -12,7 +12,7 @@ Full documentation: <https://igamenovoer.github.io/lairen/>
 It stores a provider login once, then materializes it into any target home on
 demand — project-local, holder directories, or throwaway worktrees.
 
-Status: `1.1.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
+Status: `1.2.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
 adapters; the other provider adapters are implemented but remain experimental
 because this project has no live credentials for them yet. Remote quota
 queries and OAuth refresh are the next milestones.
