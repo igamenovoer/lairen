@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lairen"
+version = "0.1.0"
+description = "Store CLI-agent credentials and deploy them into target homes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "igamenovoer" }]
+keywords = ["cli", "credentials", "codex", "kimi", "oauth"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Utilities",
+]
+dependencies = []
+
+[project.scripts]
+lairen = "lairen.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
