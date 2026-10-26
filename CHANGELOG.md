@@ -2,6 +2,15 @@
 
 All notable changes to lairen are documented here.
 
+## Unreleased
+
+### Added
+
+- `lairen update REF --home PATH` replaces a stored credential from a new
+  provider home in one command. It preserves the alias and custom label,
+  follows a changed account identity, removes the old credential blob, and
+  refuses to merge with another existing account.
+
 ## 1.0.0 - 2026-10-26
 
 First stable release. lairen's CLI surface and registry format are now covered

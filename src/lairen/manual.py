@@ -94,6 +94,7 @@ CORE COMMANDS
   lairen register codex --home ~/code/project-a/.codex
   lairen list --json
   lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
+  lairen update codex/alice@example.com --home ~/code/project-a/.codex
   lairen usage --json
 
 RULES
@@ -141,6 +142,13 @@ deploy - write a saved credential into a target home
     lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
     lairen deploy kimi/user-1--device-1 --home /tmp/work/.kimi-code --no-backup
   note: an existing target is snapshotted unless --no-backup is given.
+
+update - replace a saved credential from a new provider home
+  usage: lairen update REF --home PATH [--label TEXT]
+  examples:
+    lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
+    lairen update codex/alice@example.com --home ~/code/project-a/.codex
+  note: alias and custom label survive; a changed identity changes the ref.
 
 scan - discover Codex and Kimi credential homes
   usage: lairen scan DIRECTORY [--depth N] [--provider codex|kimi] [--register] [--json]
@@ -223,6 +231,10 @@ _WORKFLOWS = """\
 9. Alias long Kimi refs
    lairen alias 'kimi/dalvfss95eb18ppo13d0--23702bf7-c85b-4787-8e76-24a6e198653e' kimi-default
    lairen deploy kimi-default --home ~/code/project/.kimi-code
+
+10. Repair a retired login in one line
+    lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
+    # The alias survives; a changed device id changes the ref.
 """
 
 _PROVIDERS = f"""\

@@ -90,7 +90,9 @@ The value is stored as text:
 - `commandcode` and `opencode`: a small JSON wrapper containing the API key.
 - `cursor`: a normalized JSON object extracted from the SQLite database.
 
-The whole file is written atomically with mode `0600`.
+The whole file is written atomically with mode `0600`. When `lairen update`
+rebinds an account whose identity changed, it writes the blob under the new
+`provider:id` key and removes the old key.
 
 ## Snapshots
 

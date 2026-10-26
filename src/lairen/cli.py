@@ -71,6 +71,17 @@ def _warn_experimental(provider_name: str) -> None:
         )
 
 
+def _label_tracks_identity(account: Account, old_id: str) -> bool:
+    """Return True when the label was derived from the previous identity."""
+    if account.label == old_id:
+        return True
+    return any(
+        account.extra.get(key) is not None
+        and str(account.extra[key]) == account.label
+        for key in ("email", "user_id")
+    )
+
+
 @click.group(
     cls=LairenGroup,
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -119,6 +130,65 @@ def register(
     registry.upsert(account)
     suffix = f"  alias={account.alias}" if account.alias else ""
     click.echo(f"registered {account.ref}  label={account.label}  source={home_path}{suffix}")
+
+
+@cli.command()
+@click.argument("ref")
+@click.option(
+    "--home",
+    required=True,
+    type=click.Path(path_type=Path),
+    help="provider home to read the new credential from",
+)
+@click.option("--label", help="override the display label")
+def update(ref: str, home: Path, label: str | None) -> None:
+    """Replace a saved account's credential from a provider home."""
+    _, registry, store = _context()
+    account = registry.resolve(ref)
+    adapter = get_provider(account.provider)
+    _warn_experimental(account.provider)
+    home_path = adapter.resolve_home(home)
+    blob = adapter.read_live(home_path)
+    identity = adapter.parse_identity(home_path, blob)
+    old_id = account.id
+    old_ref = account.ref
+    new_id = identity.id
+
+    if new_id != old_id:
+        existing = registry.get(account.provider, new_id)
+        if existing is not None:
+            raise LairenError(
+                f"the credential at {home_path} belongs to existing account "
+                f"{existing.ref}; remove or update that account instead"
+            )
+        for other in registry.list():
+            if other.alias == new_id and (
+                other.provider,
+                other.id,
+            ) != (account.provider, old_id):
+                raise LairenError(
+                    f"new account id {new_id!r} conflicts with alias of {other.ref}"
+                )
+
+    if label is not None:
+        account.label = label
+    elif _label_tracks_identity(account, old_id):
+        account.label = identity.label
+    account.id = new_id
+    account.source_home = str(home_path)
+    account.extra = identity.extra
+    store.set(account.provider, new_id, blob)
+    registry.replace(account.provider, old_id, account)
+    if new_id != old_id:
+        store.delete(account.provider, old_id)
+
+    suffix = f"  alias={account.alias}" if account.alias else ""
+    if new_id == old_id:
+        click.echo(f"updated {account.ref}  source={home_path}{suffix}")
+    else:
+        click.echo(
+            f"updated {old_ref} -> {account.ref}  source={home_path}{suffix}"
+        )
 
 
 @cli.command(name="list")

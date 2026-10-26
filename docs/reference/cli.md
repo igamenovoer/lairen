@@ -16,6 +16,7 @@ Commands:
 | Command | Purpose |
 |---|---|
 | [`register`](#register) | Save the live login from a provider home. |
+| [`update`](#update) | Replace a saved credential from a new home. |
 | [`list`](#list) | List saved accounts. |
 | [`show`](#show) | Show one account and its local usage metadata. |
 | [`deploy`](#deploy) | Write a saved credential into a target home. |
@@ -60,6 +61,44 @@ Registering an existing `provider/id` replaces its metadata and blob but keeps
 an existing alias unless `--alias` is given.
 
 For experimental providers, a warning is printed to stderr.
+
+## update
+
+```text
+lairen update [OPTIONS] REF
+```
+
+Reads a new credential from `--home` and replaces the stored credential for
+`REF`. The source home is not modified.
+
+| Option | Meaning |
+|---|---|
+| `--home PATH` | Provider home to read the new credential from. **Required.** |
+| `--label TEXT` | Override the display label. |
+
+```bash
+lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
+lairen update codex/alice@example.com --home ~/code/project-a/.codex
+```
+
+Output:
+
+```text
+updated <ref>  source=<home>[  alias=<alias>]
+updated <old-ref> -> <new-ref>  source=<home>[  alias=<alias>]
+```
+
+Behavior:
+
+- The account's id and `source_home` follow the new credential.
+- The alias is always preserved. A provider-derived label follows a changed
+  identity; a custom label is preserved unless `--label` overrides it.
+- If the new identity already belongs to another account, lairen refuses to
+  merge and names the existing account.
+- When the id changes, the old credential blob is removed, the ref changes, and
+  the alias continues to resolve to the updated account.
+- `created_at` and deployment metadata are preserved. Deploy the account again
+  if existing target homes need the new credential.
 
 ## list
 

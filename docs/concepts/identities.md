@@ -63,6 +63,25 @@ Rules:
 - The alias is stored in the registry as the optional `alias` field. It is not
   secret and does not affect credential storage.
 
+## Updating an account
+
+`lairen update REF --home PATH` replaces a stored credential from a new
+provider home without losing the account's identity metadata:
+
+```bash
+lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
+```
+
+- If the new credential has the same identity, the ref is unchanged and the
+  blob, source home, and provider metadata are refreshed.
+- If the identity changed, the account id and ref follow the new credential.
+  The alias stays attached, a provider-derived label follows the new identity,
+  and a custom label is preserved. The old credential blob is removed.
+- If the new identity already belongs to a different account, lairen refuses to
+  merge the two. Remove or update the other account first.
+- `created_at` and deployment history are preserved. Existing deployed homes
+  are not rewritten; deploy again to push the new credential to them.
+
 ## Labels
 
 Labels are display names. They are not unique, and changing a label never

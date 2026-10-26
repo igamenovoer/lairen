@@ -40,6 +40,23 @@ def test_registry_rejects_ambiguous_bare_id(tmp_path) -> None:
         registry.resolve("same")
 
 
+def test_registry_replace_allows_id_change(tmp_path) -> None:
+    registry = Registry(tmp_path / "registry.json")
+    registry.upsert(Account("codex", "old@example.com", "old", "/tmp/a", alias="work"))
+    registry.upsert(Account("kimi", "user-1", "user-1", "/tmp/k"))
+
+    replacement = Account(
+        "codex", "new@example.com", "new", "/tmp/b", alias="work"
+    )
+    registry.replace("codex", "old@example.com", replacement)
+
+    assert registry.get("codex", "old@example.com") is None
+    assert registry.resolve("work").id == "new@example.com"
+    assert registry.resolve("codex/new@example.com") == replacement
+    with pytest.raises(LairenError, match="unknown account"):
+        registry.replace("codex", "missing@example.com", replacement)
+
+
 def test_credential_store_roundtrip_and_mode(tmp_path) -> None:
     store = CredentialStore(tmp_path / "credentials.json")
     store.set("codex", "alice@example.com", '{"tokens": {}}')

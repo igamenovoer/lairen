@@ -143,6 +143,16 @@ class Registry:
                 return account
         raise LairenError(f"unknown account: {provider}/{account_id}")
 
+    def replace(self, provider: str, account_id: str, account: Account) -> Account:
+        """Replace an existing record, allowing its id to change."""
+        accounts = self.load()
+        for index, existing in enumerate(accounts):
+            if existing.provider == provider and existing.id == account_id:
+                accounts[index] = account
+                self.save(accounts)
+                return account
+        raise LairenError(f"unknown account: {provider}/{account_id}")
+
     def remove(self, provider: str, account_id: str) -> bool:
         accounts = self.load()
         kept = [

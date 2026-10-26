@@ -88,6 +88,9 @@ lairen list
 lairen deploy codex/alice@example.com --home ./my-project/.codex
 lairen deploy kimi-2064-1 --home ./my-project/.kimi-code
 
+# Replace a stored credential from a new home, keeping the alias
+lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
+
 # Usage / expiry report (alias: stats)
 lairen usage
 lairen usage kimi/alice--device-id --json
@@ -150,6 +153,7 @@ target from an environment variable.
 | Command | Purpose |
 |---|---|
 | `lairen register <provider> [--home PATH] [--label NAME] [--alias NAME]` | Save the live login from a provider home |
+| `lairen update <ref> --home PATH [--label NAME]` | Replace a stored credential from a new home, keeping the alias |
 | `lairen list [--json]` | List saved accounts |
 | `lairen show <ref>` | Show one account and its local usage metadata |
 | `lairen deploy <ref> --home PATH` | Write a saved credential into a target home |

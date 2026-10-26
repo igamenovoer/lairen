@@ -131,13 +131,14 @@ agent refreshes its session, the provider may issue a new access token and a
 new refresh token, and the client writes them into the live home. The stored
 blob does not change.
 
-To refresh lairen's view:
+To refresh lairen's view without resetting the account record:
 
 ```bash
-lairen register codex --home ~/code/project-b/.codex
+lairen update codex/alice@example.com --home ~/code/project-b/.codex
 ```
 
-Re-registering updates the existing `provider/id` record with the new blob.
+`update` preserves the alias, custom label, creation time, and deployment
+history. See [Updating an account](../reference/cli.md#update).
 
 Remote quota endpoints, account balances, and live rate-limit state are not
 implemented. `Provider.local_usage()` is the extension point for a future
