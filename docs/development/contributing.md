@@ -98,6 +98,9 @@ Guidelines:
 - Use relative links between pages and run `docs-build` to catch broken links.
 - Keep commands and output blocks consistent with the current CLI. If you
   change a command's help text or output, update `docs/reference/cli.md`.
+- The agent manual lives in `src/lairen/manual.py`. Tests assert that it covers
+  every CLI command and provider, but examples and notes still need review when
+  behavior changes.
 - Do not paste real tokens, account keys, or private home paths into examples.
 
 ## Tests and CI

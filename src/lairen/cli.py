@@ -13,6 +13,7 @@ from typing import Any
 import click
 
 from lairen import __version__
+from lairen import manual as manual_content
 from lairen.errors import LairenError
 from lairen.models import Account
 from lairen.paths import Paths
@@ -386,6 +387,83 @@ def doctor() -> None:
         click.echo(
             f"[{adapter.name}] tested={tested} home={home} login={'yes' if login else 'no'}"
         )
+
+
+def _print_manual_topic(slug: str, json_output: bool) -> None:
+    if json_output:
+        click.echo(json.dumps(manual_content.topic_payload(slug), indent=2))
+        return
+    click.echo(manual_content.TOPICS[slug][1])
+
+
+@cli.group(
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+@click.pass_context
+def manual(ctx: click.Context) -> None:
+    """Agent-oriented usage manual with examples."""
+    if ctx.invoked_subcommand is None:
+        _print_manual_topic("overview", False)
+
+
+@manual.command()
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def overview(json_output: bool) -> None:
+    """Purpose, mental model, and the five core commands."""
+    _print_manual_topic("overview", json_output)
+
+
+@manual.command()
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def commands(json_output: bool) -> None:
+    """Command synopses and examples."""
+    _print_manual_topic("commands", json_output)
+
+
+@manual.command()
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def workflows(json_output: bool) -> None:
+    """Task sequences for common operations."""
+    _print_manual_topic("workflows", json_output)
+
+
+@manual.command(name="providers")
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def providers_topic(json_output: bool) -> None:
+    """Provider homes, credential paths, and identities."""
+    _print_manual_topic("providers", json_output)
+
+
+@manual.command()
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def storage(json_output: bool) -> None:
+    """Registry, credential store, and snapshot locations."""
+    _print_manual_topic("storage", json_output)
+
+
+@manual.command(name="json")
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def json_topic(json_output: bool) -> None:
+    """Machine-readable output shapes."""
+    _print_manual_topic("json", json_output)
+
+
+@manual.command()
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def safety(json_output: bool) -> None:
+    """Credential-handling and concurrency rules."""
+    _print_manual_topic("safety", json_output)
+
+
+@manual.command(name="all")
+@click.option("--json", "json_output", is_flag=True, help="emit structured JSON")
+def all_topics(json_output: bool) -> None:
+    """Print every manual topic."""
+    if json_output:
+        click.echo(json.dumps(manual_content.all_payload(), indent=2))
+        return
+    click.echo(manual_content.all_text())
 
 
 def main() -> None:

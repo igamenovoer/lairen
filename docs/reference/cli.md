@@ -24,6 +24,7 @@ Commands:
 | [`remove`](#remove) | Remove an account and its stored credential. |
 | [`providers`](#providers) | Show provider defaults and adapter status. |
 | [`doctor`](#doctor) | Show resolved paths, counts, and provider homes. |
+| [`manual`](#manual) | Agent-oriented usage manual with examples. |
 
 Refs are `provider/id`, a unique bare id, or a unique label. See
 [Identities and refs](../concepts/identities.md).
@@ -232,6 +233,47 @@ credentials: <count>
 
 `login=yes` means the provider's credential file exists in the resolved home.
 `doctor` does not create directories or modify files.
+
+## manual
+
+```text
+lairen manual [COMMAND]
+```
+
+An agent-oriented manual with concise topics and copyable examples. Running
+`lairen manual` without a command prints the overview.
+
+| Topic | Contents |
+|---|---|
+| `overview` | Mental model, core commands, and rules. |
+| `commands` | Every command with synopsis and examples. |
+| `workflows` | Task sequences for discovery, moves, swaps, and cleanup. |
+| `providers` | Provider homes, credential paths, and identity rules. |
+| `storage` | Registry, credential store, and snapshot layout. |
+| `json` | Machine-readable output shapes and exit codes. |
+| `safety` | Secret handling, rotation, and concurrency warnings. |
+| `all` | Every topic in one document. |
+
+Every topic accepts `--json`:
+
+```bash
+lairen manual workflows
+lairen manual providers --json
+lairen manual all --json
+```
+
+A topic's JSON output is `{"topic", "title", "text"}`. `all --json` adds the
+installed version and nests the topics:
+
+```json
+{
+  "version": "<installed version>",
+  "topics": [{"topic": "overview", "title": "Overview", "text": "..."}]
+}
+```
+
+Agents can load the whole guide with `lairen manual all` or parse the
+structured form with `lairen manual all --json`.
 
 ## Exit codes
 

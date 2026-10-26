@@ -105,7 +105,7 @@ Continue with the [Quick start](getting-started/quickstart.md).
 - [Storage and paths](concepts/storage.md): where registry, credentials, and snapshots live.
 - [Scan for accounts](guides/scanning.md): discover credential homes under a directory.
 - [Deploy credentials](guides/deploying.md): target resolution, snapshots, and merge behavior.
-- [CLI reference](reference/cli.md): every command, option, and exit code.
+- [CLI reference](reference/cli.md): every command, option, exit code, and the agent-oriented `lairen manual`.
 - [Provider reference](reference/providers.md): supported agents and their storage layouts.
 
 ## Security at a glance

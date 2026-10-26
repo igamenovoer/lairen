@@ -157,9 +157,17 @@ target from an environment variable.
 | `lairen remove <ref> --yes` | Remove an account from the registry and store |
 | `lairen providers` | Show provider defaults, tested status, and notes |
 | `lairen doctor` | Show resolved paths, account counts, and provider homes |
+| `lairen manual [topic] [--json]` | Agent-oriented manual; `manual all` loads the full guide |
 
 `<ref>` is `provider/id` (for example `codex/alice@example.com` or
 `kimi/alice--<device-id>`). A bare id or label is accepted when it is unique.
+
+Agents can load the complete usage guide in one call:
+
+```bash
+lairen manual all
+lairen manual all --json
+```
 
 ## Storage
 

@@ -131,6 +131,18 @@ project A. OAuth refresh tokens rotate, and two live homes refreshing the same
 token can invalidate each other. The [security model](../concepts/security.md)
 explains the mechanics.
 
+## Working as an agent
+
+lairen ships a compact usage manual for other agents:
+
+```bash
+lairen manual all
+lairen manual all --json
+```
+
+Individual topics are available through `lairen manual <topic>`; see the
+[CLI reference](../reference/cli.md#manual).
+
 ## Next steps
 
 - [Identities and refs](../concepts/identities.md): why Kimi refs include a device id.
