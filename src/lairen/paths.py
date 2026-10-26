@@ -14,7 +14,7 @@ class Paths:
     state_dir: Path
 
     @classmethod
-    def resolve(cls) -> "Paths":
+    def resolve(cls) -> Paths:
         root = os.environ.get("LAIREN_HOME")
         if root:
             base = Path(root).expanduser().resolve()
@@ -29,7 +29,7 @@ class Paths:
         data_dir = data_base / "lairen"
         return cls(config_base / "lairen", data_dir, data_dir / "state")
 
-    def ensure(self) -> "Paths":
+    def ensure(self) -> Paths:
         for directory in (self.config_dir, self.data_dir, self.state_dir):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         return self

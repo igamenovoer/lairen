@@ -2,24 +2,39 @@
 
 **Bring the right CLI-agent identity to the right place.**
 
-`lairen` is a small Python credential registry and deployer for CLI coding
-agents. It stores a provider login once, then materializes it into any target
-home on demand — project-local, holder directories, or throwaway worktrees.
+`lairen` is a Python credential registry and deployer for CLI coding agents.
+It stores a provider login once, then materializes it into any target home on
+demand — project-local, holder directories, or throwaway worktrees.
 
-Status: early scaffold (`0.1.0`). Local registration, listing, deployment, and
-usage metadata work today; remote quota queries and OAuth refresh are the next
-milestones.
+Status: `0.1.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
+adapters; the other provider adapters are implemented but remain experimental
+because this project has no live credentials for them yet. Remote quota
+queries and OAuth refresh are the next milestones.
 
 ## Why
 
 - Keep credentials out of project repos and out of a single global home.
-- Deploy a saved login into an arbitrary `CODEX_HOME` or `KIMI_CODE_HOME`.
+- Deploy a saved login into an arbitrary provider home.
 - Preserve session-level Kimi identity: `(user_id, device_id)`, not just
-  `user_id`, so multiple logins of the same account stay distinct.
+  `user_id`, so independent logins of one account stay addressable.
 - Inspect expiry and usage from one command, including machine-readable JSON.
-- Standard library only; no runtime dependencies.
+- Use explicit CLI arguments first; common provider environment variables are
+  respected only as fallbacks.
+
+## Requirements
+
+- Python `>=3.11` (the Pixi environment pins the 3.11 line)
+- Pixi for the managed development environment
+- Click for the CLI
 
 ## Install
+
+```bash
+pixi install
+pixi run lairen --help
+```
+
+A plain editable install works too:
 
 ```bash
 python -m pip install -e .
@@ -28,29 +43,65 @@ lairen --help
 
 ## Quick start
 
+Codex and Kimi are the tested paths:
+
 ```bash
 # Register a Codex home (reads auth.json, never prints tokens)
-lairen register codex --home ~/codex-holder/.codex
+pixi run lairen register codex --home ~/codex-holder/.codex
 
 # Register a Kimi home (reads credentials/kimi-code.json)
-lairen register kimi --home ~/kimi-homes/kimi-2064-1
+pixi run lairen register kimi --home ~/kimi-homes/kimi-2064-1
 
 # List saved identities
-lairen list
+pixi run lairen list
 
 # Deploy a saved login into a project-local home
-lairen deploy codex/alice@example.com --home ./my-project/.codex
+pixi run lairen deploy codex/alice@example.com --home ./my-project/.codex
 
-# Usage / expiry report (also available as `lairen stats`)
-lairen usage
-lairen usage kimi/alice--device-id --json
+# Usage / expiry report (alias: stats)
+pixi run lairen usage
+pixi run lairen usage kimi/alice--device-id --json
 ```
 
-Provider homes resolve in this order:
+## Provider surface
+
+`lairen` exposes every provider surface that `subswap` supports. Adapters
+marked `tested=no` are implemented against the upstream storage layouts but
+have not been exercised with live credentials here.
+
+| Provider | Tested | Env fallback | Default home | Credential | Notes |
+|---|---:|---|---|---|---|
+| `claude` | no | `CLAUDE_CONFIG_DIR` | `~/.claude` | `.credentials.json` | Merges `oauthAccount` metadata on deploy |
+| `codex` | yes | `CODEX_HOME` | `~/.codex` | `auth.json` | ChatGPT OAuth |
+| `commandcode` | no | `COMMANDCODE_HOME` | `~/.commandcode` | `auth.json` | API-key auth |
+| `cursor` | no | `CURSOR_HOME` | `~/.config/Cursor/User/globalStorage` | `state.vscdb` | Desktop SQLite; close Cursor before deploying |
+| `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `credentials/kimi-code.json` | Session identity `user_id--device_id` |
+| `opencode` | no | `OPENCODE_HOME` | `~/.local/share/opencode` | `auth.json` | Go API-key slot; Console accounts use the official CLI |
+
+Provider home resolution order:
 
 1. `--home <path>`
-2. provider environment variable (`CODEX_HOME`, `KIMI_CODE_HOME`)
-3. provider default (`~/.codex`, `~/.kimi-code`)
+2. the provider environment variable (`CODEX_HOME`, `KIMI_CODE_HOME`, ...)
+3. the provider default
+
+Deployment always requires an explicit `--home`; `lairen` does not infer a
+target from an environment variable.
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `lairen register <provider> [--home PATH] [--label NAME]` | Save the live login from a provider home |
+| `lairen list [--json]` | List saved accounts |
+| `lairen show <ref>` | Show one account and its local usage metadata |
+| `lairen deploy <ref> --home PATH` | Write a saved credential into a target home |
+| `lairen usage [ref ...] [--json]` | Expiry/usage statistics (alias: `stats`) |
+| `lairen remove <ref> --yes` | Remove an account from the registry and store |
+| `lairen providers` | Show provider defaults, tested status, and notes |
+| `lairen doctor` | Show resolved paths, account counts, and provider homes |
+
+`<ref>` is `provider/id` (for example `codex/alice@example.com` or
+`kimi/alice--<device-id>`). A bare id or label is accepted when it is unique.
 
 ## Storage
 
@@ -63,36 +114,46 @@ Provider homes resolve in this order:
 ```
 
 Set `LAIREN_HOME=/absolute/path` to keep config, data, and state under one
-root (useful for tests and per-session registries).
-
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `lairen register <provider> [--home PATH] [--label NAME]` | Save the live login from a provider home |
-| `lairen list [--json]` | List saved accounts |
-| `lairen show <ref>` | Show one account and its local usage metadata |
-| `lairen deploy <ref> --home PATH` | Write a saved credential into a target home |
-| `lairen usage [ref ...] [--json]` | Expiry/usage statistics (alias: `stats`) |
-| `lairen remove <ref> --yes` | Remove an account from the registry and store |
-| `lairen providers` | Show provider defaults and credential paths |
-| `lairen doctor` | Show resolved paths and provider homes |
-
-`<ref>` is `provider/id` (for example `codex/alice@example.com` or
-`kimi/alice--<device-id>`). A bare id is accepted when it is unique.
+root. This is a development and testing override, not an input mechanism for
+provider selection.
 
 ## Design
 
-- **Registry and credentials are separate.** The registry holds metadata only;
-  credential blobs live in a single `0600` JSON file.
+- **Registry and credentials stay separate.** Metadata is readable; secrets
+  live in one `0600` JSON file.
 - **Deployment is atomic.** Target files are written through a temporary file
   and `os.replace`, with a pre-deploy snapshot when the target already exists.
-- **Kimi identity is a session.** `user_id` plus `device_id` from the access
-  token JWT, joined as `user_id--device_id`. This keeps independent logins of
-  the same account addressable.
+  Provider-specific adapters merge rather than replace where upstream expects
+  it (OpenCode Go slot, Cursor `ItemTable`, Claude `oauthAccount`).
+- **Kimi identity is a session.** `user_id` plus `device_id`, joined as
+  `user_id--device_id`, so multiple logins of one account remain distinct.
 - **Usage is local-first.** `lairen usage` reports token expiry and refresh
   timestamps from stored blobs. Remote quota endpoints plug in behind
   `Provider.local_usage()` later.
+
+## Development
+
+```bash
+pixi run test        # core + aux unit/integration suites
+pixi run test-core   # tests for src/lairen
+pixi run test-aux    # tests for repository support files
+pixi run lint
+pixi run typecheck
+```
+
+Codex and Kimi are the only adapters with live-credential tests. Other
+adapters use fake payloads or remain untested until credentials are available.
+
+## Project layout
+
+- `src/lairen/`: importable package and Click CLI
+- `tests/core/`: tests for distributed code (`unit`, `integration`, `manual`)
+- `tests/aux/`: tests for repository support content
+- `extern/`: tracked, orphan, and linked-worktree external material
+- `context/`: plans, features, design, summaries, and archived context
+- `docs/`: user-facing documentation source
+- `scripts/`: repository automation outside the installed package
+- `skillset/`: project-specific agent skills
 
 ## Security
 
@@ -101,13 +162,14 @@ native clients. Do not commit `credentials.json`, `registry.json`, or any
 provider home. Rotating OAuth refresh tokens cannot be safely shared by two
 active homes at once; prefer one active home per saved session.
 
-## Roadmap
+## Limitations
 
-- Remote quota queries for Codex and Kimi
-- OAuth refresh with lock-aware write-back
-- Claude Code and Cursor providers
-- Import from `subswap` and `kimi-project.py`
-- Optional background daemon and auto-selection
+- Remote quota queries and OAuth refresh/write-back are not implemented.
+- `cursor` requires Cursor to be closed while the SQLite database is updated.
+- `opencode` covers the Go API-key slot; Console account switching stays with
+  the official CLI.
+- `claude`, `commandcode`, `cursor`, and `opencode` are experimental until
+  live-credential tests are added.
 
 ## License
 

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .errors import LairenError
-from .models import Account
-from .util import atomic_write_text
+from lairen.errors import LairenError
+from lairen.models import Account
+from lairen.util import atomic_write_text
 
 
 class Registry:

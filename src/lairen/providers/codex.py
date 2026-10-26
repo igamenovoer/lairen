@@ -3,25 +3,21 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 
-from ..errors import LairenError
-from ..util import epoch_to_iso, parse_jwt_claims
-from .base import Identity, Provider
+from lairen.providers.base import Identity, Provider
+from lairen.util import epoch_to_iso, parse_jwt_claims
 
 
 class CodexProvider(Provider):
     name = "codex"
     env_var = "CODEX_HOME"
-    default_home = Path.home() / ".codex"
-    credential_relpath = Path("auth.json")
+    tested = True
+    DEFAULT_HOME = Path.home() / ".codex"
+    CREDENTIAL_RELPATH = Path("auth.json")
 
-    def parse_identity(self, blob: str) -> Identity:
-        try:
-            data = json.loads(blob)
-        except json.JSONDecodeError as exc:
-            raise LairenError(f"codex credential is not valid JSON: {exc}") from exc
+    def parse_identity(self, home: Path, blob: str) -> Identity:
+        data = self.load_json(blob)
         tokens = data.get("tokens") or {}
         claims = parse_jwt_claims(tokens.get("id_token"))
         email = claims.get("email") or data.get("email")
@@ -43,10 +39,7 @@ class CodexProvider(Provider):
         )
 
     def local_usage(self, blob: str) -> dict[str, object]:
-        try:
-            data = json.loads(blob)
-        except json.JSONDecodeError as exc:
-            raise LairenError(f"codex credential is not valid JSON: {exc}") from exc
+        data = self.load_json(blob)
         tokens = data.get("tokens") or {}
         access_claims = parse_jwt_claims(tokens.get("access_token"))
         id_claims = parse_jwt_claims(tokens.get("id_token"))

@@ -8,25 +8,21 @@ is ``user_id--device_id`` rather than just ``user_id``.
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 
-from ..errors import LairenError
-from ..util import epoch_to_iso, parse_jwt_claims
-from .base import Identity, Provider
+from lairen.providers.base import Identity, Provider
+from lairen.util import epoch_to_iso, normalize_epoch, parse_jwt_claims
 
 
 class KimiProvider(Provider):
     name = "kimi"
     env_var = "KIMI_CODE_HOME"
-    default_home = Path.home() / ".kimi-code"
-    credential_relpath = Path("credentials/kimi-code.json")
+    tested = True
+    DEFAULT_HOME = Path.home() / ".kimi-code"
+    CREDENTIAL_RELPATH = Path("credentials/kimi-code.json")
 
-    def parse_identity(self, blob: str) -> Identity:
-        try:
-            data = json.loads(blob)
-        except json.JSONDecodeError as exc:
-            raise LairenError(f"kimi credential is not valid JSON: {exc}") from exc
+    def parse_identity(self, home: Path, blob: str) -> Identity:
+        data = self.load_json(blob)
         claims = parse_jwt_claims(data.get("access_token"))
         if not claims:
             claims = parse_jwt_claims(data.get("refresh_token"))
@@ -47,13 +43,11 @@ class KimiProvider(Provider):
         )
 
     def local_usage(self, blob: str) -> dict[str, object]:
-        try:
-            data = json.loads(blob)
-        except json.JSONDecodeError as exc:
-            raise LairenError(f"kimi credential is not valid JSON: {exc}") from exc
+        data = self.load_json(blob)
         access_claims = parse_jwt_claims(data.get("access_token"))
         refresh_claims = parse_jwt_claims(data.get("refresh_token"))
-        expires_at = data.get("expires_at") or access_claims.get("exp")
+        expires_at = normalize_epoch(data.get("expires_at") or access_claims.get("exp"))
+        refresh_expires = normalize_epoch(refresh_claims.get("exp"))
         return {
             "user_id": access_claims.get("user_id") or access_claims.get("sub"),
             "device_id": access_claims.get("device_id"),
@@ -61,6 +55,6 @@ class KimiProvider(Provider):
             "token_type": data.get("token_type"),
             "access_token_expires_at": expires_at,
             "access_token_expires_iso": epoch_to_iso(expires_at),
-            "refresh_token_expires_at": refresh_claims.get("exp"),
-            "refresh_token_expires_iso": epoch_to_iso(refresh_claims.get("exp")),
+            "refresh_token_expires_at": refresh_expires,
+            "refresh_token_expires_iso": epoch_to_iso(refresh_expires),
         }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .util import utc_now
+from lairen.util import utc_now
 
 
 @dataclass
@@ -36,7 +36,7 @@ class Account:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Account":
+    def from_dict(cls, data: dict[str, Any]) -> Account:
         return cls(
             provider=data["provider"],
             id=data["id"],

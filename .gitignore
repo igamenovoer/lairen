@@ -12,3 +12,5 @@ build/
 credentials.json
 registry.json
 usage.json
+.pixi/
+tmp/

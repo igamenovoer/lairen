@@ -7,7 +7,7 @@ name = "lairen"
 version = "0.1.0"
 description = "Store CLI-agent credentials and deploy them into target homes."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "igamenovoer" }]
 keywords = ["cli", "credentials", "codex", "kimi", "oauth"]
@@ -18,10 +18,53 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Utilities",
 ]
-dependencies = []
+dependencies = ["click>=8.1"]
 
 [project.scripts]
 lairen = "lairen.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.11,<3.12"
+click = ">=8.1"
+pytest = ">=8"
+pytest-xdist = ">=3"
+ruff = ">=0.6"
+mypy = ">=1.10"
+
+[tool.pixi.pypi-dependencies]
+lairen = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+test-core = "python -m pytest tests/core/unit tests/core/integration"
+test-aux = "python -m pytest tests/aux/unit tests/aux/integration"
+test = { depends-on = ["test-core", "test-aux"] }
+lint = "ruff check src tests"
+fmt = "ruff format src tests"
+typecheck = "mypy src"
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests/core/unit",
+  "tests/core/integration",
+  "tests/aux/unit",
+  "tests/aux/integration",
+]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]

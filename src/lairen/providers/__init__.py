@@ -1,13 +1,24 @@
-"""Provider registry."""
+"""Provider registry and capability metadata."""
 
 from __future__ import annotations
 
-from ..errors import LairenError
-from .base import Identity, Provider
-from .codex import CodexProvider
-from .kimi import KimiProvider
+from lairen.errors import LairenError
+from lairen.providers.base import Identity, Provider
+from lairen.providers.claude import ClaudeProvider
+from lairen.providers.codex import CodexProvider
+from lairen.providers.commandcode import CommandCodeProvider
+from lairen.providers.cursor import CursorProvider
+from lairen.providers.kimi import KimiProvider
+from lairen.providers.opencode import OpenCodeProvider
 
-_IMPLEMENTATIONS = (CodexProvider(), KimiProvider())
+_IMPLEMENTATIONS = (
+    ClaudeProvider(),
+    CodexProvider(),
+    CommandCodeProvider(),
+    CursorProvider(),
+    KimiProvider(),
+    OpenCodeProvider(),
+)
 PROVIDERS: dict[str, Provider] = {
     provider.name: provider for provider in _IMPLEMENTATIONS
 }

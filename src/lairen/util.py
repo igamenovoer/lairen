@@ -3,16 +3,33 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def sha256_hex(data: bytes, length: int = 16) -> str:
+    return hashlib.sha256(data).hexdigest()[:length]
+
+
+def normalize_epoch(value: Any) -> int | None:
+    """Return epoch seconds, accepting millisecond timestamps."""
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if number > 10_000_000_000:
+        number //= 1000
+    return number
+
 
 
 def parse_jwt_claims(token: str | None) -> dict[str, Any]:
@@ -32,7 +49,7 @@ def parse_jwt_claims(token: str | None) -> dict[str, Any]:
 
 def epoch_to_iso(value: Any) -> str | None:
     try:
-        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat(
+        return datetime.fromtimestamp(float(value), tz=UTC).isoformat(
             timespec="seconds"
         )
     except (TypeError, ValueError, OSError):
