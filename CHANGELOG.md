@@ -2,7 +2,9 @@
 
 All notable changes to lairen are documented here.
 
-## Unreleased
+## 1.1.0 - 2026-10-26
+
+Adds one-line credential updates for retired or refreshed logins.
 
 ### Added
 
@@ -40,4 +42,5 @@ existing refs continue to resolve.
   table should use `lairen list --json`.
 - Version 1.0.0 marks the first stable release. No upgrade steps are required.
 
+[1.1.0]: https://github.com/igamenovoer/lairen/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/igamenovoer/lairen/compare/v0.2.0...v1.0.0
