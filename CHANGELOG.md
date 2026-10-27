@@ -2,6 +2,28 @@
 
 All notable changes to lairen are documented here.
 
+## 1.3.0 - 2026-10-27
+
+Adds a sync path that pulls refreshed credentials back into the store.
+
+### Added
+
+- `lairen sync [REF ...] [--home PATH ...] [--dry-run] [--strict]` reads known
+  deployed homes and the source home, keeps the freshest same-identity
+  credential, and writes it back to the store. It never writes a provider home.
+  Identity changes are reported and require `lairen update`.
+- `lairen deploy --refresh` syncs known homes and the existing target before
+  writing, so a target that already refreshed its tokens is captured instead
+  of overwritten.
+- `sync` appends `sync` entries to `state/deployments.jsonl`; `status` continues
+  to use `deploy` entries for lease reporting.
+
+### Changed
+
+- Deployment-log writing is shared through `record_event()`.
+- The agent-oriented manual and docs now recommend `lairen sync` before
+  redeploying an account that another home has used.
+
 ## 1.2.0 - 2026-10-26
 
 Adds a project-aware status view and an append-only deployment ledger.
@@ -57,6 +79,7 @@ existing refs continue to resolve.
   table should use `lairen list --json`.
 - Version 1.0.0 marks the first stable release. No upgrade steps are required.
 
+[1.3.0]: https://github.com/igamenovoer/lairen/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/igamenovoer/lairen/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/igamenovoer/lairen/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/igamenovoer/lairen/compare/v0.2.0...v1.0.0

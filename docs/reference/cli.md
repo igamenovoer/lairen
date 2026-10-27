@@ -20,6 +20,7 @@ Commands:
 | [`list`](#list) | List saved accounts. |
 | [`show`](#show) | Show one account and its local usage metadata. |
 | [`deploy`](#deploy) | Write a saved credential into a target home. |
+| [`sync`](#sync) | Pull refreshed credentials from known homes into the store. |
 | [`scan`](#scan) | Discover Codex and Kimi credential homes. |
 | [`status`](#status) | Show which accounts a project directory is using. |
 | [`usage`](#usage) | Show expiry and usage statistics. |
@@ -166,9 +167,11 @@ Writes a saved credential into a target provider home.
 |---|---|
 | `--home PATH` | Target provider home. **Required.** |
 | `--no-backup` | Skip the pre-deploy snapshot. |
+| `--refresh` | Sync refreshed tokens from known homes and the target before writing. |
 
 ```bash
 lairen deploy codex/alice@example.com --home ./project/.codex
+lairen deploy work --home ./project-c/.codex --refresh
 ```
 
 Output:
@@ -181,6 +184,42 @@ snapshot: <snapshot path>        # only when a target existed and backups are on
 Updates `last_deployed_at` and `last_deployed_home` in the registry. See
 [Deploy credentials](../guides/deploying.md) for target rules and merge
 behavior.
+
+`deploy` copies the stored blob. If another home has used the account and
+refreshed its tokens, run `lairen sync REF` first or pass `--refresh`; otherwise
+the stale stored copy is what gets written.
+
+## sync
+
+```text
+lairen sync [REF ...] [--home PATH ...] [--dry-run] [--strict]
+```
+
+Reads live credentials from homes that are known to hold the account and copies
+the freshest same-identity blob back into the store. It never writes a provider
+home.
+
+Candidate homes come from the deployment log and the account's `source_home`.
+With `--home`, only the given homes are read and exactly one `REF` is required.
+
+| Option | Meaning |
+|---|---|
+| `--home PATH` | Provider home to read. Repeatable; restricts the sync to these homes. |
+| `--dry-run` | Report what would change without writing. |
+| `--strict` | Exit `1` when a drift remains or a source cannot be used. |
+
+```bash
+lairen sync
+lairen sync kimi-6240-1 --dry-run
+lairen sync kimi-6240-1 --home ~/code/project-a/.kimi-code
+```
+
+Freshness is compared by refresh-token expiry, then access-token expiry, then
+file mtime. A candidate is only written when it is strictly fresher; the alias,
+label, and `source_home` are preserved. A home whose credential now belongs to
+a different identity is reported and must be rebound explicitly with
+[`update`](#update). Each applied sync appends a `sync` entry to the deployment
+log.
 
 ## scan
 

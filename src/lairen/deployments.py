@@ -7,6 +7,9 @@ import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from lairen.models import Account
+from lairen.util import utc_now
+
 PROJECT_HOME_NAMES = (".codex", ".kimi-code", ".claude", ".commandcode")
 
 
@@ -16,6 +19,34 @@ def project_root_for_home(home: str | Path) -> str | None:
     if path.name in PROJECT_HOME_NAMES:
         return str(path.parent)
     return None
+
+
+def record_event(
+    log_path: Path,
+    action: str,
+    account: Account,
+    *,
+    home: str | None = None,
+    source_home: str | None = None,
+    previous_ref: str | None = None,
+) -> None:
+    """Append one deployment-history entry, omitting empty fields."""
+    home_value = str(Path(home).expanduser().resolve()) if home else None
+    source_value = str(Path(source_home).expanduser().resolve()) if source_home else None
+    entry: dict[str, object] = {
+        "ts": utc_now(),
+        "action": action,
+        "provider": account.provider,
+        "ref": account.ref,
+        "alias": account.alias,
+        "project": project_root_for_home(home_value) if home_value else None,
+        "home": home_value,
+        "source_home": source_value,
+        "previous_ref": previous_ref,
+    }
+    DeploymentLog(log_path).append(
+        {key: value for key, value in entry.items() if value is not None}
+    )
 
 
 class DeploymentLog:
@@ -62,9 +93,7 @@ class DeploymentLog:
             if not home:
                 continue
             current = latest.get(home)
-            if current is None or str(entry.get("ts") or "") >= str(
-                current.get("ts") or ""
-            ):
+            if current is None or str(entry.get("ts") or "") >= str(current.get("ts") or ""):
                 latest[home] = entry
         return sorted(
             latest.values(),

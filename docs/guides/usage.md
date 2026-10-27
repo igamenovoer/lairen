@@ -134,11 +134,13 @@ blob does not change.
 To refresh lairen's view without resetting the account record:
 
 ```bash
-lairen update codex/alice@example.com --home ~/code/project-b/.codex
+lairen sync codex/alice@example.com
 ```
 
-`update` preserves the alias, custom label, creation time, and deployment
-history. See [Updating an account](../reference/cli.md#update).
+`sync` reads known deployed homes and the source home, keeps the freshest
+same-identity copy, and leaves the alias, label, and deployment history intact.
+Use [`update`](../reference/cli.md#update) when you want to force a specific
+home or rebind a changed identity. See [Sync](../reference/cli.md#sync).
 
 Remote quota endpoints, account balances, and live rate-limit state are not
 implemented. `Provider.local_usage()` is the extension point for a future

@@ -53,9 +53,7 @@ def _provider_table() -> str:
     ]
     widths = [len(header) for header in headers]
     for row in rows:
-        widths = [
-            max(width, len(cell)) for width, cell in zip(widths, row, strict=True)
-        ]
+        widths = [max(width, len(cell)) for width, cell in zip(widths, row, strict=True)]
     lines = [
         "  ".join(header.ljust(width) for header, width in zip(headers, widths, strict=True)),
         "  ".join("-" * width for width in widths),
@@ -79,6 +77,7 @@ lairen - store CLI-agent credentials and deploy them into target homes.
 
 MODEL
   live provider home --register--> registry + credential store
+  deployed home  --sync----------> registry + credential store
   ref + --home PATH --deploy-----> target provider home
 
   A ref is provider/id:
@@ -93,6 +92,7 @@ CORE COMMANDS
   lairen scan ~/code --depth 2
   lairen register codex --home ~/code/project-a/.codex
   lairen list --json
+  lairen sync kimi-2064-1
   lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
   lairen update codex/alice@example.com --home ~/code/project-a/.codex
   lairen status ~/code/project-a
@@ -102,6 +102,8 @@ RULES
   - deploy always needs --home. It is the provider home directory, not the
     credential file.
   - register resolves --home, then the provider env var, then the default home.
+  - Run `lairen sync` before redeploying an account that another home has used.
+    deploy copies the stored blob; it cannot see tokens refreshed in a target.
   - lairen never prints access tokens, refresh tokens, or API keys.
   - Stop the old agent before starting the new one. Two active homes sharing one
     OAuth session can invalidate each other.
@@ -127,14 +129,12 @@ register - save the live login from a provider home
 list - list saved accounts
   usage: lairen list [--json]
   examples:
-    lairen list
     lairen list --json
   columns: REF, ALIAS, LABEL, SOURCE, LAST DEPLOYED
 
 status - show which accounts a project directory is using
   usage: lairen status [DIRECTORY] [--provider codex|kimi] [--json] [--strict]
   examples:
-    lairen status
     lairen status ~/code/project-a --json
     lairen status ~/code/project-a --strict
   note: reads .codex and .kimi-code; leases come from the log and are checked.
@@ -146,11 +146,20 @@ show - show one account and its local usage metadata
   output: JSON object with "account" and "usage" keys
 
 deploy - write a saved credential into a target home
-  usage: lairen deploy REF --home PATH [--no-backup]
+  usage: lairen deploy REF --home PATH [--no-backup] [--refresh]
   examples:
     lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
     lairen deploy kimi/user-1--device-1 --home /tmp/work/.kimi-code --no-backup
-  note: an existing target is snapshotted unless --no-backup is given.
+  note: an existing target is snapshotted unless --no-backup is given; deploy
+        copies the stored blob, so run `lairen sync REF` or add --refresh first.
+
+sync - pull refreshed credentials from known homes back into the store
+  usage: lairen sync [REF ...] [--home PATH ...] [--dry-run] [--strict]
+  examples:
+    lairen sync
+    lairen sync kimi-6240-1 --home ~/code/project/.kimi-code --dry-run
+  note: reads known deployed homes and the source home; never writes a home.
+        With --home, only those homes are read and one REF is required.
 
 update - replace a saved credential from a new provider home
   usage: lairen update REF --home PATH [--label TEXT]
@@ -169,7 +178,6 @@ scan - discover Codex and Kimi credential homes
 usage - expiry and usage statistics
   usage: lairen usage [REF ...] [--json]   (alias: stats)
   examples:
-    lairen usage
     lairen usage codex/alice@example.com --json
 
 remove - delete an account and its stored credential
@@ -182,7 +190,6 @@ alias - set, clear, or list stable account handles
   usage: lairen alias [REF] [NAME] [--clear] [--json]
   examples:
     lairen alias kimi/user-1--device-1 kimi-1
-    lairen alias kimi-1
     lairen alias --json
     lairen alias kimi-1 --clear
   note: aliases are unique and resolve before ids and labels.
@@ -196,7 +203,6 @@ doctor - show resolved paths, counts, and login status
 manual - agent-oriented manual
   usage: lairen manual [TOPIC]
   examples:
-    lairen manual
     lairen manual workflows
     lairen manual all --json
 """
@@ -231,8 +237,8 @@ _WORKFLOWS = """\
 
 7. Check what is about to expire
    lairen usage
-   lairen usage --json
-   # Re-register from the live home to capture refreshed tokens.
+   lairen sync
+   # sync pulls refreshed tokens back from known deployed homes.
 
 8. Remove a stale account
    lairen remove kimi/user-1--device-2 --yes
@@ -250,6 +256,13 @@ _WORKFLOWS = """\
     lairen status
     lairen status ~/code/project-b --json
     # --strict exits 1 for unregistered, invalid, or drifted credentials.
+
+12. Sync before redeploying
+    lairen sync kimi-1 --dry-run
+    lairen sync kimi-1
+    lairen deploy kimi-1 --home ~/code/project-c/.kimi-code
+    # deploy copies the stored blob; sync captures tokens refreshed in
+    # project-a or project-b first.
 """
 
 _PROVIDERS = f"""\
@@ -302,8 +315,8 @@ SNAPSHOTS
   Restore: cp <snapshot> <target credential>; chmod 600 <target credential>.
 
 DEPLOYMENTS
-  deployments.jsonl is append-only and records deploy, update, and remove
-  events. status uses deploy entries to report other projects. No token
+  deployments.jsonl is append-only and records deploy, sync, update, and
+  remove events. status uses deploy entries to report other projects. No token
   material is written.
 
 EXAMPLE
@@ -360,16 +373,18 @@ _SAFETY = """\
 - Deployment copies credentials. Stop the old agent before starting the new one.
 - OAuth refresh tokens rotate. Two active homes on one session can invalidate
   each other. Keep one active home per saved session.
-- The stored blob does not follow refreshes. Re-register from the live home to
-  capture a refreshed token.
+- The stored blob does not follow refreshes automatically. Run `lairen sync`
+  (or `lairen update` from a specific home) before redeploying an account that
+  another home has used.
 - Experimental adapters: claude, commandcode, cursor, opencode.
 - Never commit credentials.json, registry.json, or provider homes.
 - remove --yes deletes the registry record and stored blob. Deployed homes and
   snapshots remain.
 
 EXAMPLE
-  # capture rotated tokens from the live home after an agent refreshes
-  lairen register codex --home ~/code/project-b/.codex
+  # capture rotated tokens from any known deployed home
+  lairen sync codex/alice@example.com
+  lairen deploy codex/alice@example.com --home ~/code/project-c/.codex
 """
 
 TOPICS: dict[str, tuple[str, str]] = {

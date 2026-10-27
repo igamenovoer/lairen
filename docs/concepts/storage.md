@@ -118,8 +118,10 @@ Use `--no-backup` to skip snapshot creation for a deployment.
 ## Deployment log
 
 `<state>/deployments.jsonl` is an append-only JSON Lines history written by
-`deploy`, `update`, and `remove`. It records the account, alias, target home,
-source home, and timestamp. No token material is written.
+`deploy`, `sync`, `update`, and `remove`. It records the account, alias, target
+home, source home, and timestamp. No token material is written. `status` uses
+only `deploy` entries for lease reporting, so `sync` does not create a project
+lease.
 
 ```json
 {
@@ -169,6 +171,7 @@ Codex, pass `~/.codex`, not `~/.codex/auth.json`. For Kimi, pass
 
 - It does not copy whole provider homes, only the credential file.
 - It does not write to the source home during `register`.
-- It does not refresh or rewrite tokens in the store after deployment.
+- It does not refresh tokens automatically. `lairen sync` copies a fresher
+  credential from a known home back into the store explicitly.
 - It does not encrypt the credential store. See the
   [security model](security.md).

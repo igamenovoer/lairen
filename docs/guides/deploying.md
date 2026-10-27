@@ -5,7 +5,7 @@ always an explicit `--home` argument, and any existing credential is
 snapshotted before it is replaced.
 
 ```bash
-lairen deploy REF --home PATH [--no-backup]
+lairen deploy REF --home PATH [--no-backup] [--refresh]
 ```
 
 ## Target home resolution
@@ -67,6 +67,25 @@ snapshot: /home/alice/.local/share/lairen/state/snapshots/codex-20261026T1200000
 
 The snapshot line appears only when a target file existed and backups were
 enabled.
+
+## Sync before you redeploy
+
+`deploy` copies the stored credential; it cannot see tokens that a target's
+agent refreshed after the last registration. Before deploying an account to a
+new home, pull the freshest known copy back into the store:
+
+```bash
+lairen sync REF --dry-run
+lairen sync REF
+lairen deploy REF --home ./project-c/.codex
+```
+
+`sync` reads known deployed homes and the source home, compares refresh and
+access expiry, and updates only the store. It never writes a home. A home whose
+credential now belongs to a different identity is reported and must be rebound
+explicitly with `lairen update`. Use `deploy --refresh` as a one-step
+alternative; it syncs known homes and the target before writing. See
+[`sync`](../reference/cli.md#sync).
 
 ## Replace versus merge
 
@@ -142,6 +161,10 @@ reports the account's metadata and the stored blob's expiry, not the contents
 of the target file.
 
 ## Before you deploy
+
+If the account has been used in another home, run `lairen sync REF` or pass
+`--refresh` first. Otherwise you deploy the stored copy, which may predate the
+tokens that home is actually using.
 
 Stop any running agent that uses the same saved session, and read the
 [OAuth rotation rule](../concepts/security.md#oauth-refresh-token-rotation).

@@ -12,7 +12,7 @@ Full documentation: <https://igamenovoer.github.io/lairen/>
 It stores a provider login once, then materializes it into any target home on
 demand — project-local, holder directories, or throwaway worktrees.
 
-Status: `1.2.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
+Status: `1.3.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
 adapters; the other provider adapters are implemented but remain experimental
 because this project has no live credentials for them yet. Remote quota
 queries and OAuth refresh are the next milestones.
@@ -88,6 +88,9 @@ lairen list
 lairen deploy codex/alice@example.com --home ./my-project/.codex
 lairen deploy kimi-2064-1 --home ./my-project/.kimi-code
 
+# Pull tokens refreshed in a project home back into the store
+lairen sync kimi-2064-1
+
 # Replace a stored credential from a new home, keeping the alias
 lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
 
@@ -159,7 +162,8 @@ target from an environment variable.
 | `lairen update <ref> --home PATH [--label NAME]` | Replace a stored credential from a new home, keeping the alias |
 | `lairen list [--json]` | List saved accounts |
 | `lairen show <ref>` | Show one account and its local usage metadata |
-| `lairen deploy <ref> --home PATH` | Write a saved credential into a target home |
+| `lairen deploy <ref> --home PATH [--refresh]` | Write a saved credential into a target home |
+| `lairen sync [ref ...] [--home PATH ...] [--dry-run] [--strict]` | Pull refreshed credentials from known homes into the store |
 | `lairen scan DIR [--depth N] [--provider P] [--register] [--json]` | Discover Codex/Kimi homes |
 | `lairen status [DIR] [--provider P] [--json] [--strict]` | Show which accounts a project is using |
 | `lairen usage [ref ...] [--json]` | Expiry/usage statistics (alias: `stats`) |

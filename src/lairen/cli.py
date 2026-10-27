@@ -15,7 +15,7 @@ import click
 
 from lairen import __version__
 from lairen import manual as manual_content
-from lairen.deployments import DeploymentLog, project_root_for_home
+from lairen.deployments import record_event
 from lairen.errors import LairenError
 from lairen.models import Account
 from lairen.paths import Paths
@@ -23,6 +23,7 @@ from lairen.providers import PROVIDERS, get_provider
 from lairen.scan import best_per_account, scan_accounts
 from lairen.status import AccountStatus, ProjectReport, inspect_project
 from lairen.store import CredentialStore, Registry
+from lairen.sync import apply_sync, candidate_homes, plan_sync
 from lairen.util import epoch_to_iso, format_remaining, utc_now
 
 
@@ -58,18 +59,12 @@ def _print_table(headers: tuple[str, ...], rows: list[tuple[Any, ...]]) -> None:
         for index, cell in enumerate(row):
             widths[index] = max(widths[index], _display_width(cell))
     click.echo(
-        "  ".join(
-            header.ljust(width)
-            for header, width in zip(headers, widths, strict=True)
-        )
+        "  ".join(header.ljust(width) for header, width in zip(headers, widths, strict=True))
     )
     click.echo("  ".join("-" * width for width in widths))
     for row in rows:
         click.echo(
-            "  ".join(
-                _pad_cell(cell, width)
-                for cell, width in zip(row, widths, strict=True)
-            )
+            "  ".join(_pad_cell(cell, width) for cell, width in zip(row, widths, strict=True))
         )
 
 
@@ -88,8 +83,7 @@ def _label_tracks_identity(account: Account, old_id: str) -> bool:
     if account.label == old_id:
         return True
     return any(
-        account.extra.get(key) is not None
-        and str(account.extra[key]) == account.label
+        account.extra.get(key) is not None and str(account.extra[key]) == account.label
         for key in ("email", "user_id")
     )
 
@@ -109,24 +103,14 @@ def _record_deployment(
     source_home: str | None = None,
     previous_ref: str | None = None,
 ) -> None:
-    home_value = str(Path(home).expanduser().resolve()) if home else None
-    source_value = (
-        str(Path(source_home).expanduser().resolve()) if source_home else None
-    )
-    entry: dict[str, object] = {
-        "ts": utc_now(),
-        "action": action,
-        "provider": account.provider,
-        "ref": account.ref,
-        "alias": account.alias,
-        "project": project_root_for_home(home_value) if home_value else None,
-        "home": home_value,
-        "source_home": source_value,
-        "previous_ref": previous_ref,
-    }
     try:
-        DeploymentLog(paths.deployments_path).append(
-            {key: value for key, value in entry.items() if value is not None}
+        record_event(
+            paths.deployments_path,
+            action,
+            account,
+            home=home,
+            source_home=source_home,
+            previous_ref=previous_ref,
         )
     except OSError as exc:
         click.echo(f"warning: cannot write deployment log: {exc}", err=True)
@@ -150,15 +134,10 @@ def _status_detail(item: AccountStatus) -> None:
         click.echo(f"invalid: {item.credential}: {item.error}")
     elif item.state == "unregistered":
         click.echo(f"unregistered: {item.ref}  {item.credential}")
-        click.echo(
-            f"  register: lairen register {item.provider} --home {item.home}"
-        )
+        click.echo(f"  register: lairen register {item.provider} --home {item.home}")
     elif item.state == "drifted":
         if item.registry_expires_at == item.expires_at:
-            click.echo(
-                f"drifted: {item.ref}  project credential differs from the "
-                "registry copy"
-            )
+            click.echo(f"drifted: {item.ref}  project credential differs from the registry copy")
         else:
             registry = item.registry_expires_at or "unknown"
             click.echo(
@@ -166,9 +145,7 @@ def _status_detail(item: AccountStatus) -> None:
                 f"registry expires {registry}"
             )
     elif item.state == "missing-store-blob":
-        click.echo(
-            f"missing registry blob: {item.ref}; re-register or update the account"
-        )
+        click.echo(f"missing registry blob: {item.ref}; re-register or update the account")
     elif item.state == "no-login":
         click.echo(f"no login: {item.home}")
 
@@ -236,11 +213,7 @@ def register(
     blob = adapter.read_live(home_path)
     identity = adapter.parse_identity(home_path, blob)
     _, registry, store = _context()
-    alias = (
-        registry.validate_alias(alias_name, adapter.name, identity.id)
-        if alias_name
-        else None
-    )
+    alias = registry.validate_alias(alias_name, adapter.name, identity.id) if alias_name else None
     account = Account(
         provider=adapter.name,
         id=identity.id,
@@ -289,9 +262,7 @@ def update(ref: str, home: Path, label: str | None) -> None:
                 other.provider,
                 other.id,
             ) != (account.provider, old_id):
-                raise LairenError(
-                    f"new account id {new_id!r} conflicts with alias of {other.ref}"
-                )
+                raise LairenError(f"new account id {new_id!r} conflicts with alias of {other.ref}")
 
     if label is not None:
         account.label = label
@@ -316,9 +287,7 @@ def update(ref: str, home: Path, label: str | None) -> None:
     if new_id == old_id:
         click.echo(f"updated {account.ref}  source={home_path}{suffix}")
     else:
-        click.echo(
-            f"updated {old_ref} -> {account.ref}  source={home_path}{suffix}"
-        )
+        click.echo(f"updated {old_ref} -> {account.ref}  source={home_path}{suffix}")
 
 
 @cli.command(name="list")
@@ -377,26 +346,47 @@ def show(ref: str) -> None:
     help="target provider home",
 )
 @click.option("--no-backup", is_flag=True, help="skip the pre-deploy snapshot")
-def deploy(ref: str, home: Path, no_backup: bool) -> None:
+@click.option(
+    "--refresh",
+    is_flag=True,
+    help="sync refreshed tokens from known homes and the target before writing",
+)
+def deploy(ref: str, home: Path, no_backup: bool, refresh: bool) -> None:
     """Write a saved credential into a target home."""
     paths, registry, store = _context()
     account = registry.resolve(ref)
     _warn_experimental(account.provider)
-    blob = store.get(account.provider, account.id)
-    if blob is None:
-        raise LairenError(f"credential blob missing for {account.ref}")
     adapter = get_provider(account.provider)
     target_home = adapter.resolve_home(home).resolve()
     target_path = adapter.credential_path_for(target_home)
+    blob = store.get(account.provider, account.id)
+
+    if refresh:
+        homes = candidate_homes(
+            paths,
+            account,
+            extra_homes=(target_home,) if target_path.exists() else (),
+            include_known=True,
+        )
+        plan = plan_sync(account, blob, adapter, homes)
+        for problem in plan.problems:
+            click.echo(f"warning: {problem}", err=True)
+        for note in plan.notes:
+            click.echo(f"note: {note}", err=True)
+        if plan.state == "update" and plan.blob is not None:
+            apply_sync(paths, store, plan)
+            blob = plan.blob
+            old = epoch_to_iso(plan.old_access_expires_at) or "unknown"
+            new = epoch_to_iso(plan.new_access_expires_at) or "unknown"
+            click.echo(f"synced {account.ref} from {plan.home}: access {old} -> {new}")
+
+    if blob is None:
+        raise LairenError(f"credential blob missing for {account.ref}")
 
     snapshot: Path | None = None
     if target_path.exists() and not no_backup:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-        snapshot = (
-            paths.snapshots_dir
-            / f"{account.provider}-{stamp}"
-            / adapter.CREDENTIAL_RELPATH
-        )
+        snapshot = paths.snapshots_dir / f"{account.provider}-{stamp}" / adapter.CREDENTIAL_RELPATH
         snapshot.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(target_path, snapshot)
         os.chmod(snapshot, 0o600)
@@ -417,15 +407,90 @@ def deploy(ref: str, home: Path, no_backup: bool) -> None:
         click.echo(f"snapshot: {snapshot}")
 
 
+@cli.command()
+@click.argument("refs", nargs=-1)
+@click.option(
+    "--home",
+    "homes",
+    multiple=True,
+    type=click.Path(path_type=Path),
+    help="provider home to read (repeatable); restricts sync to these homes",
+)
+@click.option("--dry-run", is_flag=True, help="report what would change without writing")
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="exit 1 when a drift remains or a source cannot be used",
+)
+def sync(
+    refs: tuple[str, ...],
+    homes: tuple[Path, ...],
+    dry_run: bool,
+    strict: bool,
+) -> None:
+    """Pull refreshed credentials from known homes back into the store."""
+    paths, registry, store = _context()
+    if homes and not refs:
+        raise LairenError("--home requires a REF")
+    if homes and len(refs) > 1:
+        raise LairenError("--home accepts only one REF")
+
+    accounts = [registry.resolve(ref) for ref in refs] if refs else registry.list()
+    if not accounts:
+        click.echo("no accounts; run `lairen register <provider> --home <path>`")
+        return
+
+    extra_homes = tuple(Path(home) for home in homes)
+    pending = 0
+    problems = 0
+    for account in accounts:
+        adapter = get_provider(account.provider)
+        _warn_experimental(account.provider)
+        stored = store.get(account.provider, account.id)
+        candidates = candidate_homes(
+            paths,
+            account,
+            extra_homes=extra_homes,
+            include_known=not extra_homes,
+        )
+        plan = plan_sync(account, stored, adapter, candidates)
+        for problem in plan.problems:
+            click.echo(f"warning: {problem}", err=True)
+            problems += 1
+        for note in plan.notes:
+            click.echo(f"note: {note}", err=True)
+        if plan.state == "missing-store-blob":
+            click.echo(
+                f"skipped {account.ref}: credential blob missing; run lairen update or register"
+            )
+            problems += 1
+            continue
+        if plan.state == "no-known-homes":
+            click.echo(f"no known homes for {account.ref}")
+            continue
+        if plan.state == "update":
+            old = epoch_to_iso(plan.old_access_expires_at) or "unknown"
+            new = epoch_to_iso(plan.new_access_expires_at) or "unknown"
+            if dry_run:
+                click.echo(f"would update {account.ref} from {plan.home}: access {old} -> {new}")
+                pending += 1
+            else:
+                apply_sync(paths, store, plan)
+                click.echo(f"updated {account.ref} from {plan.home}: access {old} -> {new}")
+            continue
+        click.echo(f"current {account.ref}")
+
+    if strict and (problems or pending):
+        raise LairenError(f"strict sync failed: {problems + pending} issue(s) remain")
+
+
 @cli.command(name="usage")
 @click.argument("refs", nargs=-1)
 @click.option("--json", "json_output", is_flag=True, help="emit machine-readable JSON")
 def usage(refs: tuple[str, ...], json_output: bool) -> None:
     """Show expiry and usage statistics (alias: stats)."""
     _, registry, store = _context()
-    accounts = (
-        [registry.resolve(ref) for ref in refs] if refs else registry.list()
-    )
+    accounts = [registry.resolve(ref) for ref in refs] if refs else registry.list()
     if not accounts:
         click.echo("no accounts; run `lairen register <provider> --home <path>`")
         return
@@ -537,9 +602,7 @@ def alias(
         return
     if name is None:
         if json_output:
-            click.echo(
-                json.dumps({"ref": account.ref, "alias": account.alias}, indent=2)
-            )
+            click.echo(json.dumps({"ref": account.ref, "alias": account.alias}, indent=2))
         elif account.alias:
             click.echo(account.alias)
         else:
@@ -568,9 +631,7 @@ def alias(
     type=click.Choice(["codex", "kimi"]),
     help="limit the scan to a provider (repeatable)",
 )
-@click.option(
-    "--register", "do_register", is_flag=True, help="save discovered accounts"
-)
+@click.option("--register", "do_register", is_flag=True, help="save discovered accounts")
 @click.option("--json", "json_output", is_flag=True, help="emit machine-readable JSON")
 def scan(
     directory: Path,
@@ -621,10 +682,7 @@ def scan(
         )
         return
 
-    rows = [
-        (hit.provider, hit.ref, str(hit.home), hit.depth)
-        for hit in hits
-    ]
+    rows = [(hit.provider, hit.ref, str(hit.home), hit.depth) for hit in hits]
     _print_table(("PROVIDER", "REF", "HOME", "DEPTH"), rows)
 
 
@@ -663,9 +721,7 @@ def doctor() -> None:
         home = adapter.resolve_home()
         login = adapter.credential_path_for(home).is_file()
         tested = "yes" if adapter.tested else "no"
-        click.echo(
-            f"[{adapter.name}] tested={tested} home={home} login={'yes' if login else 'no'}"
-        )
+        click.echo(f"[{adapter.name}] tested={tested} home={home} login={'yes' if login else 'no'}")
 
 
 @cli.command()
@@ -706,9 +762,7 @@ def status(
     else:
         _render_status(report)
     if strict and not report.ok:
-        raise LairenError(
-            f"strict status failed: {len(report.problems)} problem account(s)"
-        )
+        raise LairenError(f"strict status failed: {len(report.problems)} problem account(s)")
 
 
 def _print_manual_topic(slug: str, json_output: bool) -> None:
