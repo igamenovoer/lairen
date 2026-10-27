@@ -5,7 +5,7 @@ always an explicit `--home` argument, and any existing credential is
 snapshotted before it is replaced.
 
 ```bash
-lairen deploy REF --home PATH [--no-backup] [--refresh]
+lairen deploy REF --home PATH [--no-backup] [--refresh] [--force]
 ```
 
 ## Target home resolution
@@ -86,6 +86,24 @@ credential now belongs to a different identity is reported and must be rebound
 explicitly with `lairen update`. Use `deploy --refresh` as a one-step
 alternative; it syncs known homes and the target before writing. See
 [`sync`](../reference/cli.md#sync).
+
+## Overwrite protection
+
+Before replacing an existing target, `deploy` compares its live credential with
+the stored copy for that account. If the target is newer — the home ran and
+refreshed after the last registration — deploy refuses:
+
+```text
+refusing to overwrite /home/me/project/.codex/auth.json: it holds a newer
+credential for codex/alice@example.com than the registry copy.
+Run `lairen sync codex/alice@example.com --home /home/me/project/.codex` first.
+Pass --force to overwrite anyway.
+```
+
+Sync the account, then deploy again, or use `deploy --refresh` for the same
+account. `--force` overwrites without capturing the target tokens; the normal
+pre-deploy snapshot still preserves the file. A target whose credential is
+unregistered produces a warning rather than a refusal.
 
 ## Replace versus merge
 

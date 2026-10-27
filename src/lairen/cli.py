@@ -23,7 +23,7 @@ from lairen.providers import PROVIDERS, get_provider
 from lairen.scan import best_per_account, scan_accounts
 from lairen.status import AccountStatus, ProjectReport, inspect_project
 from lairen.store import CredentialStore, Registry
-from lairen.sync import apply_sync, candidate_homes, plan_sync
+from lairen.sync import apply_sync, candidate_homes, check_overwrite, plan_sync
 from lairen.util import epoch_to_iso, format_remaining, utc_now
 
 
@@ -351,7 +351,12 @@ def show(ref: str) -> None:
     is_flag=True,
     help="sync refreshed tokens from known homes and the target before writing",
 )
-def deploy(ref: str, home: Path, no_backup: bool, refresh: bool) -> None:
+@click.option(
+    "--force",
+    is_flag=True,
+    help="overwrite a target whose credential is newer than the store",
+)
+def deploy(ref: str, home: Path, no_backup: bool, refresh: bool, force: bool) -> None:
     """Write a saved credential into a target home."""
     paths, registry, store = _context()
     account = registry.resolve(ref)
@@ -382,6 +387,21 @@ def deploy(ref: str, home: Path, no_backup: bool, refresh: bool) -> None:
 
     if blob is None:
         raise LairenError(f"credential blob missing for {account.ref}")
+
+    if target_path.exists():
+        check = check_overwrite(registry, store, adapter, target_home, target_path, account.ref)
+        if check.blocked:
+            reason = check.reason or "the target holds a newer credential"
+            advice = check.advice or "Run `lairen sync` first."
+            if not force:
+                raise LairenError(
+                    f"refusing to overwrite {target_path}: {reason}.\n"
+                    f"{advice}\n"
+                    "Pass --force to overwrite anyway."
+                )
+            click.echo(f"warning: overwriting {target_path}: {reason}", err=True)
+        elif check.warning:
+            click.echo(f"warning: {check.warning}", err=True)
 
     snapshot: Path | None = None
     if target_path.exists() and not no_backup:

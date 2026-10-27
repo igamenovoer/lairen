@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from lairen.errors import LairenError
 from lairen.models import Account
 from lairen.paths import Paths
 from lairen.providers.base import Identity, Provider
-from lairen.store import CredentialStore
+from lairen.store import CredentialStore, Registry
 
 Freshness = tuple[float, float, float]
 
@@ -45,6 +46,16 @@ class SyncPlan:
     problems: list[str] = field(default_factory=list)
 
 
+@dataclass
+class OverwriteCheck:
+    """Whether deploying over an existing target would lose a newer credential."""
+
+    blocked: bool = False
+    reason: str | None = None
+    advice: str | None = None
+    warning: str | None = None
+
+
 def _number(value: object) -> float:
     if isinstance(value, (int, float)):
         return float(value)
@@ -60,6 +71,23 @@ def _expiry_pair(adapter: Provider, blob: str) -> tuple[float, float]:
         _number(usage.get("refresh_token_expires_at")),
         _number(usage.get("access_token_expires_at")),
     )
+
+
+def _canonical(blob: str) -> str:
+    """Return a formatting-insensitive representation of a JSON credential."""
+    try:
+        return json.dumps(json.loads(blob), sort_keys=True, separators=(",", ":"))
+    except (json.JSONDecodeError, TypeError):
+        return blob.strip()
+
+
+def is_fresher(adapter: Provider, candidate_blob: str, stored_blob: str) -> bool:
+    """Return True when a candidate credential is newer than the stored one."""
+    candidate_pair = _expiry_pair(adapter, candidate_blob)
+    stored_pair = _expiry_pair(adapter, stored_blob)
+    if candidate_pair != stored_pair:
+        return candidate_pair > stored_pair
+    return candidate_pair != (0.0, 0.0) and _canonical(candidate_blob) != _canonical(stored_blob)
 
 
 def candidate_homes(
@@ -89,6 +117,56 @@ def candidate_homes(
             seen.add(key)
             result.append(home)
     return result
+
+
+def check_overwrite(
+    registry: Registry,
+    store: CredentialStore,
+    adapter: Provider,
+    target_home: Path,
+    target_path: Path,
+    deployed_ref: str,
+) -> OverwriteCheck:
+    """Inspect an existing target before deploy replaces it."""
+    try:
+        target_blob = target_path.read_text(encoding="utf-8")
+        identity = adapter.parse_identity(target_home, target_blob)
+    except (OSError, UnicodeDecodeError, LairenError):
+        return OverwriteCheck()
+
+    target_ref = f"{adapter.name}/{identity.id}"
+    account = registry.get(adapter.name, identity.id)
+    if account is None:
+        return OverwriteCheck(
+            warning=(
+                f"target {target_path} holds an unregistered credential for "
+                f"{target_ref}; it will be overwritten"
+            )
+        )
+
+    stored_blob = store.get(adapter.name, identity.id)
+    if stored_blob is None:
+        return OverwriteCheck(
+            blocked=True,
+            reason=f"it holds a credential for {target_ref}, but the store has no copy",
+            advice=f"Run `lairen update {target_ref} --home {target_home}` to save it first.",
+        )
+
+    if not is_fresher(adapter, target_blob, stored_blob):
+        return OverwriteCheck()
+
+    if target_ref == deployed_ref:
+        advice = (
+            f"Run `lairen sync {deployed_ref} --home {target_home}` or "
+            f"`lairen deploy {deployed_ref} --home {target_home} --refresh` first."
+        )
+    else:
+        advice = f"Run `lairen sync {target_ref} --home {target_home}` first."
+    return OverwriteCheck(
+        blocked=True,
+        reason=f"it holds a newer credential for {target_ref} than the registry copy",
+        advice=advice,
+    )
 
 
 def _read_candidate(adapter: Provider, home: Path) -> SyncCandidate:
@@ -146,9 +224,7 @@ def plan_sync(
     best = max(candidates, key=lambda item: item.freshness)
     stored_pair = (stored_refresh, stored_access)
     candidate_pair = (best.refresh_expires_at, best.access_expires_at)
-    if candidate_pair > stored_pair or (
-        candidate_pair == stored_pair and best.blob != stored_blob and candidate_pair != (0.0, 0.0)
-    ):
+    if is_fresher(adapter, best.blob, stored_blob):
         plan.state = "update"
         plan.home = best.home
         plan.blob = best.blob

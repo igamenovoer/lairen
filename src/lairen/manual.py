@@ -146,12 +146,12 @@ show - show one account and its local usage metadata
   output: JSON object with "account" and "usage" keys
 
 deploy - write a saved credential into a target home
-  usage: lairen deploy REF --home PATH [--no-backup] [--refresh]
+  usage: lairen deploy REF --home PATH [--no-backup] [--refresh] [--force]
   examples:
     lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
     lairen deploy kimi/user-1--device-1 --home /tmp/work/.kimi-code --no-backup
-  note: an existing target is snapshotted unless --no-backup is given; deploy
-        copies the stored blob, so run `lairen sync REF` or add --refresh first.
+  note: snapshots unless --no-backup. Refuses to overwrite a target newer than
+        the store; sync first or pass --force. --refresh syncs before writing.
 
 sync - pull refreshed credentials from known homes back into the store
   usage: lairen sync [REF ...] [--home PATH ...] [--dry-run] [--strict]

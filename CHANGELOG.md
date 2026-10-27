@@ -2,6 +2,18 @@
 
 All notable changes to lairen are documented here.
 
+## 1.4.0 - 2026-10-28
+
+### Added
+
+- `lairen deploy` now refuses to overwrite a target whose live credential is
+  newer than the stored copy for that account. The refusal names the account,
+  explains that overwriting would discard a newer token, and prints the
+  `lairen sync` command that captures it first.
+- `lairen deploy --force` overrides the refusal. The normal pre-deploy snapshot
+  still preserves the overwritten file. A target holding an unregistered
+  credential produces a warning rather than a refusal.
+
 ## 1.3.0 - 2026-10-27
 
 Adds a sync path that pulls refreshed credentials back into the store.
@@ -79,6 +91,7 @@ existing refs continue to resolve.
   table should use `lairen list --json`.
 - Version 1.0.0 marks the first stable release. No upgrade steps are required.
 
+[1.4.0]: https://github.com/igamenovoer/lairen/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/igamenovoer/lairen/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/igamenovoer/lairen/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/igamenovoer/lairen/compare/v1.0.0...v1.1.0

@@ -168,6 +168,7 @@ Writes a saved credential into a target provider home.
 | `--home PATH` | Target provider home. **Required.** |
 | `--no-backup` | Skip the pre-deploy snapshot. |
 | `--refresh` | Sync refreshed tokens from known homes and the target before writing. |
+| `--force` | Overwrite even when the target holds a newer credential. |
 
 ```bash
 lairen deploy codex/alice@example.com --home ./project/.codex
@@ -188,6 +189,13 @@ behavior.
 `deploy` copies the stored blob. If another home has used the account and
 refreshed its tokens, run `lairen sync REF` first or pass `--refresh`; otherwise
 the stale stored copy is what gets written.
+
+Before writing, `deploy` inspects the existing target. If the target holds a
+credential for an account in the registry that is newer than the stored copy,
+deploy refuses and prints the account, the reason, and the sync command that
+would capture it. `--force` overrides the refusal; the pre-deploy snapshot still
+protects the old file. A target holding an unregistered credential only prints
+a warning.
 
 ## sync
 
