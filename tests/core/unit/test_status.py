@@ -6,10 +6,8 @@ import base64
 import json
 from pathlib import Path
 
-from lairen.models import Account
 from lairen.paths import Paths
 from lairen.status import inspect_project
-from lairen.store import CredentialStore, Registry
 
 
 def b64(value: dict[str, object]) -> str:
@@ -61,37 +59,6 @@ def make_paths(tmp_path: Path) -> Paths:
         data_dir=tmp_path / "data",
         state_dir=tmp_path / "state",
     )
-
-
-def test_status_uses_legacy_last_deploy_as_a_lease(tmp_path) -> None:
-    paths = make_paths(tmp_path)
-    project = tmp_path / "project-a"
-    other = tmp_path / "project-b"
-    blob = write_codex(project / ".codex", "alice@example.com")
-    registry = Registry(paths.registry_path)
-    registry.upsert(
-        Account(
-            "codex",
-            "alice@example.com",
-            "alice@example.com",
-            str(project / ".codex"),
-            last_deployed_at="2026-10-26T12:00:00+00:00",
-            last_deployed_home=str(other / ".codex"),
-        )
-    )
-    CredentialStore(paths.credentials_path).set(
-        "codex", "alice@example.com", blob
-    )
-
-    report = inspect_project(project, ("codex",), paths)
-
-    assert report.ok
-    assert report.accounts[0].state == "current"
-    assert len(report.accounts[0].leases) == 1
-    lease = report.accounts[0].leases[0]
-    assert lease.legacy is True
-    assert lease.project == str(other)
-    assert lease.live is False
 
 
 def test_status_reports_an_empty_provider_home_as_no_login(tmp_path) -> None:

@@ -39,6 +39,10 @@ class Paths:
         return self.config_dir / "registry.json"
 
     @property
+    def schema_path(self) -> Path:
+        return self.data_dir / "schema.json"
+
+    @property
     def credentials_path(self) -> Path:
         return self.data_dir / "credentials.json"
 

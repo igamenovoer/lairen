@@ -20,6 +20,7 @@ class KimiProvider(Provider):
     tested = True
     DEFAULT_HOME = Path.home() / ".kimi-code"
     CREDENTIAL_RELPATH = Path("credentials/kimi-code.json")
+    PROJECT_HOME_NAME = ".kimi-code"
 
     def parse_identity(self, home: Path, blob: str) -> Identity:
         data = self.load_json(blob)

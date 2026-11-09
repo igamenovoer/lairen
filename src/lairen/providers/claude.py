@@ -19,6 +19,7 @@ class ClaudeProvider(Provider):
     deploy_note = "OAuth credentials; oauthAccount metadata is merged on deploy"
     DEFAULT_HOME = Path.home() / ".claude"
     CREDENTIAL_RELPATH = Path(".credentials.json")
+    PROJECT_HOME_NAME = ".claude"
 
     def _global_config_path(self, home: Path) -> Path:
         if home.name == ".claude" and home.parent == Path.home():

@@ -2,6 +2,42 @@
 
 All notable changes to lairen are documented here.
 
+## 1.5.0 - 2026-11-09
+
+### Added
+
+- `lairen associations [--group-by account|project] [--account REF]...
+  [--project DIR]... [--provider P]... [--active-only] [--json]` derives the
+  account/project graph from the deployment ledger. The newest deploy for each
+  `(provider, home)` pair is active; older entries are overwritten. An
+  `update` that changes an account's identity also invalidates earlier
+  deployments of that account. Several providers and several homes per project
+  are supported, including custom home directory names.
+- `lairen available [--provider P]... [--json]` lists registered accounts with
+  no active deployment. Overwritten assignments do not count as assigned.
+- `lairen deploy --project PATH` attributes a deployment to a project and
+  resolves a relative `--home` under it.
+- `lairen deploy` no longer requires `--home`. Omitting it uses
+  `<project>/<provider native name>` (`.kimi-code`, `.codex`, `.claude`,
+  `.commandcode`, `.opencode`). Cursor keeps requiring an explicit `--home`.
+- Deploy records now store the resolved `project` explicitly, so custom home
+  directory names keep their project association.
+- `lairen migrate [--dry-run] [--project HOME=PROJECT]... [--no-backup]`
+  explicitly migrates old lairen state to the current schema. It backfills
+  project attribution, materializes legacy `last_deployed_home` pointers as
+  deploy entries, and refuses versions below the supported minimum. Re-running
+  with `--project` on a current state applies late mappings to unattributed
+  entries.
+- `data/schema.json` now records the on-disk state version. Fresh state gets
+  the current version; existing state without a marker is legacy and must be
+  migrated.
+
+### Changed
+
+- Commands no longer read legacy deployment-log or `last_deployed_home`
+  fallbacks at runtime. Unmigrated state fails with a `lairen migrate` hint,
+  and `lairen doctor` reports the schema status.
+
 ## 1.4.0 - 2026-10-28
 
 ### Added
@@ -91,6 +127,7 @@ existing refs continue to resolve.
   table should use `lairen list --json`.
 - Version 1.0.0 marks the first stable release. No upgrade steps are required.
 
+[1.5.0]: https://github.com/igamenovoer/lairen/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/igamenovoer/lairen/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/igamenovoer/lairen/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/igamenovoer/lairen/compare/v1.1.0...v1.2.0

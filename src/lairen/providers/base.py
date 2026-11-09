@@ -29,6 +29,7 @@ class Provider(ABC):
     deploy_note: str = ""
     DEFAULT_HOME: Path
     CREDENTIAL_RELPATH: Path
+    PROJECT_HOME_NAME: str | None = None
 
     def default_home(self) -> Path:
         return self.DEFAULT_HOME

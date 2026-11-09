@@ -5,13 +5,15 @@ from __future__ import annotations
 import os
 import stat
 
-from lairen.deployments import DeploymentLog, project_root_for_home
+from lairen.deployments import DeploymentLog, project_root_for_home, record_event
+from lairen.models import Account
 
 
 def test_project_root_for_provider_homes() -> None:
     assert project_root_for_home("/home/me/project/.codex") == "/home/me/project"
     assert project_root_for_home("/home/me/project/.kimi-code") == "/home/me/project"
     assert project_root_for_home("/home/me/project/.claude") == "/home/me/project"
+    assert project_root_for_home("/home/me/project/.opencode") == "/home/me/project"
     assert project_root_for_home("/home/me/.kimi-code") == "/home/me"
     assert project_root_for_home("/home/me/project/custom-home") is None
 
@@ -100,3 +102,34 @@ def test_related_refs_follows_update_chain(tmp_path) -> None:
         "codex/mid@example.com",
         "codex/old@example.com",
     }
+
+
+def test_record_event_explicit_none_project_is_preserved(tmp_path) -> None:
+    log_path = tmp_path / "deployments.jsonl"
+    account = Account("codex", "a@example.com", "a@example.com", "/src")
+
+    record_event(
+        log_path,
+        "deploy",
+        account,
+        home="/home/me/.codex",
+        project=None,
+    )
+
+    entry = DeploymentLog(log_path).entries()[0]
+    assert entry["project"] is None
+
+
+def test_record_event_infers_project_when_omitted(tmp_path) -> None:
+    log_path = tmp_path / "deployments.jsonl"
+    account = Account("codex", "a@example.com", "a@example.com", "/src")
+
+    record_event(
+        log_path,
+        "deploy",
+        account,
+        home="/home/me/project/.codex",
+    )
+
+    entry = DeploymentLog(log_path).entries()[0]
+    assert entry["project"] == "/home/me/project"

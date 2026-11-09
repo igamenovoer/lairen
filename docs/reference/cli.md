@@ -18,6 +18,8 @@ Commands:
 | [`register`](#register) | Save the live login from a provider home. |
 | [`update`](#update) | Replace a saved credential from a new home. |
 | [`list`](#list) | List saved accounts. |
+| [`associations`](#associations) | List account/project associations from the ledger. |
+| [`available`](#available) | List accounts with no active deployment. |
 | [`show`](#show) | Show one account and its local usage metadata. |
 | [`deploy`](#deploy) | Write a saved credential into a target home. |
 | [`sync`](#sync) | Pull refreshed credentials from known homes into the store. |
@@ -28,6 +30,7 @@ Commands:
 | [`alias`](#alias) | Set, clear, or list stable account aliases. |
 | [`providers`](#providers) | Show provider defaults and adapter status. |
 | [`doctor`](#doctor) | Show resolved paths, counts, and provider homes. |
+| [`migrate`](#migrate) | Migrate lairen state to the current schema version. |
 | [`manual`](#manual) | Agent-oriented usage manual with examples. |
 
 Refs are `provider/id`, a unique alias, a unique bare id, or a unique label.
@@ -143,6 +146,89 @@ With no accounts, lairen prints a hint instead of a table:
 no accounts; run `lairen register <provider> --home <path>`
 ```
 
+## associations
+
+```text
+lairen associations [--group-by account|project] [--account REF]...
+                    [--project DIR]... [--provider P]... [--active-only] [--json]
+```
+
+Derives account/project edges from the deployment ledger. It does not scan the
+filesystem. A project may hold several accounts and several homes for the same
+provider, including custom home names such as `.kimi-code-2`.
+
+| Option | Meaning |
+|---|---|
+| `--group-by account\|project` | Group output by account (default) or project. |
+| `--account REF` | Limit to one account. Repeatable. |
+| `--project DIR` | Limit to one project directory. Repeatable. |
+| `--provider P` | Limit to one provider. Repeatable. |
+| `--active-only` | Hide overwritten associations. |
+| `--json` | Emit a flat list of association records. |
+
+The newest `deploy` entry for each `(provider, home)` pair is `active`; every
+older entry for the same pair is `overwritten`, even when it belongs to another
+account. An `update` that changes an account's identity also marks earlier
+deploys of that account as overwritten, because those homes still hold the old
+identity. Homes with no recorded project appear under `(unattributed)`.
+
+Legacy `last_deployed_home` pointers are not read here; run
+[`lairen migrate`](#migrate) to materialize them as deploy entries.
+
+```bash
+lairen associations --group-by project
+lairen associations --group-by account --account kimi-6240
+```
+
+JSON record:
+
+```json
+{
+  "provider": "kimi",
+  "ref": "kimi/user-1--device-1",
+  "alias": "kimi-a",
+  "label": "user-1",
+  "project": "/home/me/code/project-a",
+  "home": "/home/me/code/project-a/.kimi-code-2",
+  "deployed_at": "2026-11-09T03:55:14+00:00",
+  "state": "active"
+}
+```
+
+## available
+
+```text
+lairen available [--provider P]... [--json]
+```
+
+Lists registered accounts with no active association. An account with only
+overwritten assignments is available. The table shows the newest inactive
+assignment so the result is auditable.
+
+```bash
+lairen available
+lairen available --provider kimi --json
+```
+
+JSON record:
+
+```json
+{
+  "ref": "kimi/user-2--device-2",
+  "provider": "kimi",
+  "alias": null,
+  "label": "user-2",
+  "last_assignment": {
+    "project": "/home/me/code/project-b",
+    "home": "/home/me/code/project-b/.kimi-code",
+    "deployed_at": "2026-11-01T10:00:00+00:00",
+    "state": "overwritten"
+  }
+}
+```
+
+`last_assignment` is `null` when the account has never been deployed.
+
 ## show
 
 ```text
@@ -165,15 +251,39 @@ Writes a saved credential into a target provider home.
 
 | Option | Meaning |
 |---|---|
-| `--home PATH` | Target provider home. **Required.** |
+| `--project PATH` | Project root for attribution and relative `--home` resolution. Defaults to the current directory. |
+| `--home PATH` | Target provider home. Absolute, or relative to `--project`. Omit to use `<project>/<provider native name>`. |
 | `--no-backup` | Skip the pre-deploy snapshot. |
 | `--refresh` | Sync refreshed tokens from known homes and the target before writing. |
 | `--force` | Overwrite even when the target holds a newer credential. |
 
+Native project home names used when `--home` is omitted:
+
+| Provider | Home under the project |
+|---|---|
+| `kimi` | `.kimi-code` |
+| `codex` | `.codex` |
+| `claude` | `.claude` |
+| `commandcode` | `.commandcode` |
+| `opencode` | `.opencode` |
+| `cursor` | none; `--home` is required |
+
 ```bash
-lairen deploy codex/alice@example.com --home ./project/.codex
-lairen deploy work --home ./project-c/.codex --refresh
+cd ~/code/project-c
+lairen deploy codex/alice@example.com
+lairen deploy kimi-6240 --home .kimi-code-2
+lairen deploy work --project ~/code/project-c --home .codex --refresh
 ```
+
+When `--home` is omitted, lairen prints the resolved target before writing. A
+relative `--home` resolves under `--project`, or under the current directory
+when `--project` is omitted. An absolute `--home` is used as-is; the current
+directory is recorded as the project only when the home is inside it.
+
+Updates `last_deployed_at` and `last_deployed_home` in the registry, and writes
+`project`, `home`, and the account ref into the deployment ledger. See
+[Deploy credentials](../guides/deploying.md) for target rules and merge
+behavior.
 
 Output:
 
@@ -300,9 +410,8 @@ States:
 The `OTHER PROJECTS` column comes from the append-only deployment log and
 excludes the inspected home. Each target is checked against its current
 credential, so a target that now holds a different account is marked
-`(overwritten)`. Accounts recorded before the log existed fall back to the
-single `last_deployed_home` value, marked `(last deploy)`. The JSON `leases`
-entries carry `live: true|false|null`; `null` means no check was possible.
+`(overwritten)`. The JSON `leases` entries carry `live: true|false|null`;
+`null` means no check was possible.
 
 JSON shape:
 
@@ -424,13 +533,61 @@ Prints:
 config dir : <path>
 data dir   : <path>
 state dir  : <path>
+schema     : <version or status>
 accounts   : <count>
 credentials: <count>
 [<provider>] tested=<yes|no> home=<path> login=<yes|no>
 ```
 
 `login=yes` means the provider's credential file exists in the resolved home.
+`schema` reports the state version without failing on legacy state.
 `doctor` does not create directories or modify files.
+
+## migrate
+
+```text
+lairen migrate [--dry-run] [--project HOME=PROJECT]... [--no-backup]
+```
+
+Migrates lairen's on-disk state to the current schema version. There is no
+automatic migration: commands refuse to read unmigrated state and tell you to
+run this command.
+
+| Option | Meaning |
+|---|---|
+| `--dry-run` | Report what would change without writing. |
+| `--project HOME=PROJECT` | Attribute a custom-named home to a project. Repeatable. |
+| `--no-backup` | Skip the pre-migration snapshot. |
+
+What the current migration does:
+
+- Adds `data/schema.json` with the current version.
+- Normalizes registry records to the current field set.
+- Fills `project` on deploy entries from standard home names.
+- Materializes legacy `last_deployed_home` pointers as deploy entries.
+- Reports deploy entries that remain unattributed.
+
+A backup of the registry, deployment log, and existing schema marker is written
+under `state/migrations/<UTC timestamp>/` unless `--no-backup` is given.
+
+The migration is idempotent. Re-running it with `--project` on an already
+current state applies late mappings to deploy entries whose `project` is still
+null; it does not change the schema version.
+
+```bash
+lairen migrate --dry-run
+lairen migrate --project /home/me/code/project/.kimi-alt=/home/me/code/project
+```
+
+Supported versions:
+
+- No schema marker with existing state is legacy version 1 and is supported.
+- Versions below the minimum supported version are rejected; migrate them
+  manually or recreate the lairen state.
+- Versions newer than this lairen are rejected; upgrade lairen instead.
+
+A completely fresh state is initialized at the current version, either by the
+first command that needs state or by `lairen migrate`.
 
 ## manual
 

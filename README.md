@@ -12,7 +12,7 @@ Full documentation: <https://igamenovoer.github.io/lairen/>
 It stores a provider login once, then materializes it into any target home on
 demand — project-local, holder directories, or throwaway worktrees.
 
-Status: `1.4.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
+Status: `1.5.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
 adapters; the other provider adapters are implemented but remain experimental
 because this project has no live credentials for them yet. Remote quota
 queries and OAuth refresh are the next milestones.
@@ -145,14 +145,17 @@ have not been exercised with live credentials here.
 | `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `credentials/*.json` | Session identity `user_id--device_id` |
 | `opencode` | no | `OPENCODE_HOME` | `~/.local/share/opencode` | `auth.json` | Go API-key slot; Console accounts use the official CLI |
 
-Provider home resolution order:
+Provider home resolution order for `register`:
 
 1. `--home <path>`
 2. the provider environment variable (`CODEX_HOME`, `KIMI_CODE_HOME`, ...)
 3. the provider default
 
-Deployment always requires an explicit `--home`; `lairen` does not infer a
-target from an environment variable.
+For `deploy`, `--home` selects the target and may be relative to `--project`.
+Omitting it uses `<project>/<provider native name>`: `.codex`, `.kimi-code`,
+`.claude`, `.commandcode`, or `.opencode`. `cursor` has no native project name
+and always needs `--home`. Provider environment variables never select a deploy
+target.
 
 ## Commands
 
@@ -161,8 +164,10 @@ target from an environment variable.
 | `lairen register <provider> [--home PATH] [--label NAME] [--alias NAME]` | Save the live login from a provider home |
 | `lairen update <ref> --home PATH [--label NAME]` | Replace a stored credential from a new home, keeping the alias |
 | `lairen list [--json]` | List saved accounts |
+| `lairen associations [--group-by account\|project] [--account REF] [--project DIR] [--provider P] [--active-only] [--json]` | List account/project associations from the ledger |
+| `lairen available [--provider P] [--json]` | List accounts with no active deployment |
 | `lairen show <ref>` | Show one account and its local usage metadata |
-| `lairen deploy <ref> --home PATH [--refresh] [--force]` | Write a saved credential into a target home |
+| `lairen deploy <ref> [--project DIR] [--home PATH] [--refresh] [--force]` | Write a saved credential into a target home |
 | `lairen sync [ref ...] [--home PATH ...] [--dry-run] [--strict]` | Pull refreshed credentials from known homes into the store |
 | `lairen scan DIR [--depth N] [--provider P] [--register] [--json]` | Discover Codex/Kimi homes |
 | `lairen status [DIR] [--provider P] [--json] [--strict]` | Show which accounts a project is using |
@@ -171,6 +176,7 @@ target from an environment variable.
 | `lairen alias [ref] [name] [--clear] [--json]` | Set, clear, or list stable account aliases |
 | `lairen providers` | Show provider defaults, tested status, and notes |
 | `lairen doctor` | Show resolved paths, account counts, and provider homes |
+| `lairen migrate [--dry-run] [--project HOME=PROJECT] [--no-backup]` | Migrate lairen state to the current schema |
 | `lairen manual [topic] [--json]` | Agent-oriented manual; `manual all` loads the full guide |
 
 `<ref>` is `provider/id` (for example `codex/alice@example.com` or
@@ -191,14 +197,21 @@ lairen manual all --json
 ~/.config/lairen/
   registry.json          # account metadata: provider, id, label, alias, source
 ~/.local/share/lairen/
+  schema.json            # on-disk state schema version
   credentials.json       # credential blobs, mode 0600
   state/snapshots/       # pre-deploy copies of overwritten target files
+  state/migrations/      # pre-migration backups
   state/deployments.jsonl # append-only deploy/update/remove history
 ```
 
 Set `LAIREN_HOME=/absolute/path` to keep config, data, and state under one
 root. This is a development and testing override, not an input mechanism for
 provider selection.
+
+`schema.json` versions the on-disk state. There is no automatic migration:
+commands refuse unmigrated state and point at `lairen migrate`, which backs up
+the registry and deployment log before rewriting them. Versions below the
+minimum supported version require manual migration or recreating the state.
 
 ## Design
 

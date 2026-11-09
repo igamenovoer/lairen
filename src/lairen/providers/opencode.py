@@ -26,6 +26,7 @@ class OpenCodeProvider(Provider):
     deploy_note = "Go API-key slot; Console accounts use the official CLI"
     DEFAULT_HOME = Path.home() / ".local" / "share" / "opencode"
     CREDENTIAL_RELPATH = Path("auth.json")
+    PROJECT_HOME_NAME = ".opencode"
 
     def default_home(self) -> Path:
         base = Path(

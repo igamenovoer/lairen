@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lairen.deployments import DeploymentLog, project_root_for_home
+from lairen.deployments import DeploymentLog
 from lairen.errors import LairenError
 from lairen.paths import Paths
 from lairen.providers import get_provider
@@ -27,7 +27,6 @@ class Lease:
     project: str | None
     home: str
     deployed_at: str | None
-    legacy: bool = False
     live: bool | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -35,7 +34,6 @@ class Lease:
             "project": self.project,
             "home": self.home,
             "deployed_at": self.deployed_at,
-            "legacy": self.legacy,
             "live": self.live,
         }
 
@@ -243,20 +241,6 @@ def _inspect_credential(
         state = "drifted"
 
     leases = _leases(log, ref, home, provider, identity.id)
-    if not leases and account is not None and account.last_deployed_home:
-        legacy_home = str(
-            Path(account.last_deployed_home).expanduser().resolve()
-        )
-        if legacy_home != str(home):
-            leases.append(
-                Lease(
-                    project=project_root_for_home(legacy_home),
-                    home=legacy_home,
-                    deployed_at=account.last_deployed_at,
-                    legacy=True,
-                    live=_lease_is_live(provider, Path(legacy_home), identity.id),
-                )
-            )
 
     return AccountStatus(
         provider=provider,
@@ -300,7 +284,7 @@ def _leases(
         lease_home = str(Path(raw_home).expanduser().resolve())
         if lease_home == str(home):
             continue
-        project = entry.get("project") or project_root_for_home(lease_home)
+        project = entry.get("project")
         lease_path = Path(lease_home)
         leases.append(
             Lease(

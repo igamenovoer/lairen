@@ -10,7 +10,14 @@ from pathlib import Path
 from lairen.models import Account
 from lairen.util import utc_now
 
-PROJECT_HOME_NAMES = (".codex", ".kimi-code", ".claude", ".commandcode")
+PROJECT_HOME_NAMES = (".codex", ".kimi-code", ".claude", ".commandcode", ".opencode")
+
+
+class _InferProject:
+    pass
+
+
+_INFER_PROJECT = _InferProject()
 
 
 def project_root_for_home(home: str | Path) -> str | None:
@@ -28,24 +35,36 @@ def record_event(
     *,
     home: str | None = None,
     source_home: str | None = None,
+    project: str | Path | None | _InferProject = _INFER_PROJECT,
     previous_ref: str | None = None,
 ) -> None:
     """Append one deployment-history entry, omitting empty fields."""
     home_value = str(Path(home).expanduser().resolve()) if home else None
     source_value = str(Path(source_home).expanduser().resolve()) if source_home else None
+    project_value: str | None
+    if isinstance(project, _InferProject):
+        project_value = project_root_for_home(home_value) if home_value else None
+    elif project is None:
+        project_value = None
+    else:
+        project_value = str(Path(project).expanduser().resolve())
     entry: dict[str, object] = {
         "ts": utc_now(),
         "action": action,
         "provider": account.provider,
         "ref": account.ref,
         "alias": account.alias,
-        "project": project_root_for_home(home_value) if home_value else None,
+        "project": project_value,
         "home": home_value,
         "source_home": source_value,
         "previous_ref": previous_ref,
     }
     DeploymentLog(log_path).append(
-        {key: value for key, value in entry.items() if value is not None}
+        {
+            key: value
+            for key, value in entry.items()
+            if value is not None or key == "project"
+        }
     )
 
 

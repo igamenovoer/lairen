@@ -78,7 +78,7 @@ lairen - store CLI-agent credentials and deploy them into target homes.
 MODEL
   live provider home --register--> registry + credential store
   deployed home  --sync----------> registry + credential store
-  ref + --home PATH --deploy-----> target provider home
+  ref + --project/--home --deploy-> target provider home
 
   A ref is provider/id:
     codex/alice@example.com
@@ -88,22 +88,35 @@ MODEL
     lairen alias kimi/user-123--device-456 kimi-a
     lairen deploy kimi-a --home ~/code/project/.kimi-code
 
+  Deploy targets are project-local by default:
+    cd ~/code/project
+    lairen deploy kimi-a            # -> ./.kimi-code
+    lairen deploy kimi-a --home .kimi-code-2
+    lairen deploy kimi-a --project ~/code/project --home .kimi-code-2
+
 CORE COMMANDS
   lairen scan ~/code --depth 2
   lairen register codex --home ~/code/project-a/.codex
   lairen list --json
+  lairen associations --group-by account
+  lairen associations --group-by project
+  lairen available
   lairen sync kimi-2064-1
+  lairen deploy codex/alice@example.com --project ~/code/project-b
   lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
   lairen update codex/alice@example.com --home ~/code/project-a/.codex
   lairen status ~/code/project-a
   lairen usage --json
 
 RULES
-  - deploy always needs --home. It is the provider home directory, not the
-    credential file.
+  - --home is the provider home directory, not the credential file. Omit it
+    to use <project>/<provider native name>. A relative --home resolves under
+    --project, or the current directory when --project is omitted.
   - register resolves --home, then the provider env var, then the default home.
   - Run `lairen sync` before redeploying an account that another home has used.
     deploy copies the stored blob; it cannot see tokens refreshed in a target.
+  - associations and available use the deployment ledger, not a filesystem scan.
+    The newest deploy per (provider, home) is active; older ones are overwritten.
   - lairen never prints access tokens, refresh tokens, or API keys.
   - Stop the old agent before starting the new one. Two active homes sharing one
     OAuth session can invalidate each other.
@@ -121,90 +134,90 @@ Refs are provider/id, a unique alias, a bare id, or a label when unique.
 register - save the live login from a provider home
   usage: lairen register PROVIDER [--home PATH] [--label TEXT] [--alias TEXT]
   providers: {", ".join(sorted(PROVIDERS))}
-  examples:
-    lairen register codex --home ~/code/project-a/.codex
-    lairen register kimi --home ~/kimi-homes/kimi-1 --label lease-1 --alias kimi-1
+  example: lairen register codex --home ~/code/project-a/.codex
   note: re-registration replaces the blob but preserves an existing alias.
 
 list - list saved accounts
   usage: lairen list [--json]
-  examples:
-    lairen list --json
+  example: lairen list --json
   columns: REF, ALIAS, LABEL, SOURCE, LAST DEPLOYED
+
+associations - list account/project associations from the ledger
+  usage: lairen associations [--group-by account|project] [--account REF ...]
+         [--project PATH ...] [--provider P ...] [--active-only] [--json]
+  examples: lairen associations --group-by project
+            lairen associations --account kimi-6240 --active-only
+  note: newest deploy per (provider, home) is active; older rows and deploys
+        before an identity-changing update are overwritten.
+
+available - list registered accounts with no active deployment
+  usage: lairen available [--provider P ...] [--json]
+  example: lairen available --provider kimi
+  note: overwritten assignments do not count as assigned.
 
 status - show which accounts a project directory is using
   usage: lairen status [DIRECTORY] [--provider codex|kimi] [--json] [--strict]
-  examples:
-    lairen status ~/code/project-a --json
-    lairen status ~/code/project-a --strict
+  example: lairen status ~/code/project-a --json
   note: reads .codex and .kimi-code; leases come from the log and are checked.
 
 show - show one account and its local usage metadata
   usage: lairen show REF
-  example:
-    lairen show codex/alice@example.com
+  example: lairen show codex/alice@example.com
   output: JSON object with "account" and "usage" keys
 
 deploy - write a saved credential into a target home
-  usage: lairen deploy REF --home PATH [--no-backup] [--refresh] [--force]
-  examples:
-    lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
-    lairen deploy kimi/user-1--device-1 --home /tmp/work/.kimi-code --no-backup
-  note: snapshots unless --no-backup. Refuses to overwrite a target newer than
-        the store; sync first or pass --force. --refresh syncs before writing.
+  usage: lairen deploy REF [--project PATH] [--home PATH]
+         [--no-backup] [--refresh] [--force]
+  examples: lairen deploy codex/alice@example.com --project ~/code/project-b
+            lairen deploy kimi-6240 --project . --home .kimi-code-2
+  note: omit --home for <project>/<provider native name>; relative --home
+        resolves under --project or the cwd. cursor always needs --home.
+        --refresh syncs first; --force overrides a newer target.
 
 sync - pull refreshed credentials from known homes back into the store
   usage: lairen sync [REF ...] [--home PATH ...] [--dry-run] [--strict]
-  examples:
-    lairen sync
-    lairen sync kimi-6240-1 --home ~/code/project/.kimi-code --dry-run
+  example: lairen sync kimi-6240-1 --dry-run
   note: reads known deployed homes and the source home; never writes a home.
-        With --home, only those homes are read and one REF is required.
 
 update - replace a saved credential from a new provider home
   usage: lairen update REF --home PATH [--label TEXT]
-  examples:
-    lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
-    lairen update codex/alice@example.com --home ~/code/project-a/.codex
+  example: lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
   note: alias and custom label survive; a changed identity changes the ref.
 
 scan - discover Codex and Kimi credential homes
   usage: lairen scan DIRECTORY [--depth N] [--provider codex|kimi] [--register] [--json]
-  examples:
-    lairen scan ~/code --depth 2
-    lairen scan ~/kimi-homes --provider kimi --register
+  example: lairen scan ~/code --depth 2
   note: depth 0 = root only; depth 1 = root + immediate children (default).
 
 usage - expiry and usage statistics
   usage: lairen usage [REF ...] [--json]   (alias: stats)
-  examples:
-    lairen usage codex/alice@example.com --json
+  example: lairen usage --json
 
 remove - delete an account and its stored credential
   usage: lairen remove REF --yes
-  example:
-    lairen remove codex/alice@example.com --yes
   note: deployed homes and snapshots are not touched.
 
 alias - set, clear, or list stable account handles
   usage: lairen alias [REF] [NAME] [--clear] [--json]
-  examples:
-    lairen alias kimi/user-1--device-1 kimi-1
-    lairen alias --json
-    lairen alias kimi-1 --clear
+  examples: lairen alias kimi-1 kimi-a
+            lairen alias --json
   note: aliases are unique and resolve before ids and labels.
 
 providers - list adapters, homes, and tested status
   usage: lairen providers
+
+migrate - migrate lairen state to the current schema version
+  usage: lairen migrate [--dry-run] [--project HOME=PROJECT ...] [--no-backup]
+  example: lairen migrate --project /code/proj/.kimi-alt=/code/proj
+  note: no marker means legacy; below the supported minimum, migrate manually
+        or recreate state. Re-run with --project to fix unattributed entries.
 
 doctor - show resolved paths, counts, and login status
   usage: lairen doctor
 
 manual - agent-oriented manual
   usage: lairen manual [TOPIC]
-  examples:
-    lairen manual workflows
-    lairen manual all --json
+  example: lairen manual all --json
 """
 
 _WORKFLOWS = """\
@@ -260,9 +273,33 @@ _WORKFLOWS = """\
 12. Sync before redeploying
     lairen sync kimi-1 --dry-run
     lairen sync kimi-1
-    lairen deploy kimi-1 --home ~/code/project-c/.kimi-code
+    lairen deploy kimi-1 --project ~/code/project-c
     # deploy copies the stored blob; sync captures tokens refreshed in
     # project-a or project-b first.
+
+13. Deploy into a project with several homes
+    cd ~/code/project-c
+    lairen deploy kimi-a                   # -> ./.kimi-code
+    lairen deploy kimi-b --home .kimi-code-2
+    lairen deploy codex-b                  # -> ./.codex
+    lairen associations --group-by project
+
+14. Review account/project associations
+    lairen associations --group-by account
+    lairen associations --group-by project --provider kimi
+    # overwritten rows remain visible; --active-only hides them.
+
+15. Find accounts that are free to assign
+    lairen available
+    lairen available --provider kimi --json
+    # an account is available when it has no active deployment. An overwritten
+    # lease does not count.
+
+16. Migrate old lairen state
+    lairen migrate --dry-run
+    lairen migrate --project /home/me/code/proj/.kimi-alt=/home/me/code/proj
+    # state without a schema marker is legacy. Versions below the supported
+    # minimum must be migrated manually or recreated.
 """
 
 _PROVIDERS = f"""\
@@ -277,7 +314,10 @@ REGISTER HOME ORDER
   --home > provider env var > default home
 
 DEPLOY
-  --home is required. Provider env vars never select a deploy target.
+  --home selects the target provider home and may be relative to --project.
+  Omit it to use <project>/<provider native name>: .codex, .kimi-code,
+  .claude, .commandcode, or .opencode. cursor has no native project name and
+  always needs --home. Provider env vars never select a deploy target.
 
 SCAN
   Only codex and kimi are auto-discovered.
@@ -294,12 +334,19 @@ _STORAGE = """\
 DEFAULT PATHS
   config  ${XDG_CONFIG_HOME:-~/.config}/lairen/registry.json
   data    ${XDG_DATA_HOME:-~/.local/share}/lairen/credentials.json  (0600)
+          <data>/schema.json  (state schema version)
   state   <data>/state/snapshots/<provider>-<UTC timestamp>/<relpath>
+          <data>/state/migrations/<UTC timestamp>/  (pre-migration backups)
           <data>/state/deployments.jsonl  (append-only deploy history)
 
 LAIREN_HOME
   LAIREN_HOME=/abs/root -> /abs/root/{config,data,state}
   It changes storage only; it never selects a provider home.
+
+SCHEMA
+  schema.json records the state version. State without it is legacy; run
+  `lairen migrate`. Versions below the supported minimum must be migrated
+  manually or the lairen state recreated. The current version is 2.
 
 REGISTRY
   JSON list of provider, id, label, source_home, created_at,
@@ -331,11 +378,23 @@ COMMANDS WITH JSON
   lairen show REF             {account, usage}
   lairen scan DIR --json      list of scan hits
   lairen status DIR --json    {project, ok, accounts, warnings}
+  lairen associations --json  list of association records
+  lairen available --json     list of available-account records
   lairen manual all --json    {version, topics: [{topic, title, text}]}
 
 LIST RECORD
   {"ref", "provider", "id", "label", "source_home", "alias", "created_at",
    "last_deployed_at", "last_deployed_home", "extra"}
+
+ASSOCIATION RECORD
+  {"provider", "ref", "alias", "label", "project", "home", "deployed_at",
+   "state"}
+  state is "active" or "overwritten"; project is null when unattributed.
+
+AVAILABLE RECORD
+  {"ref", "provider", "alias", "label", "last_assignment"}
+  last_assignment is the newest overwritten association, or null when the
+  account has never been deployed.
 
 USAGE RECORD
   {"ref", "provider", "alias", "label", "last_deployed_at", "expires_at",
@@ -353,7 +412,7 @@ STATUS RECORD
   {"provider", "ref", "alias", "label", "home", "credential", "state",
    "expires_at", "expires_in_seconds", "registry_expires_at",
    "registry_expires_in_seconds",
-   "leases": [{"project", "home", "deployed_at", "legacy", "live"}], "error"}
+   "leases": [{"project", "home", "deployed_at", "live"}], "error"}
 
 TOPIC RECORD
   {"topic", "title", "text"}

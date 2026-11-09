@@ -91,8 +91,8 @@ homes, matches each credential to the registry, and reports its state:
 
 Its `OTHER PROJECTS` column comes from the append-only
 [deployment log](storage.md#deployment-log), so `deploy`, `update`, and
-`remove` history is visible per account. Accounts deployed before the log
-existed fall back to `last_deployed_home` and are marked `(last deploy)`.
+`remove` history is visible per account. Legacy `last_deployed_home` pointers
+are materialized as deploy entries by [`lairen migrate`](../reference/cli.md#migrate).
 
 ## Labels
 

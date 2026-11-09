@@ -1,11 +1,12 @@
 # Deploy credentials
 
-`deploy` writes a saved credential into a target provider home. The target is
-always an explicit `--home` argument, and any existing credential is
-snapshotted before it is replaced.
+`deploy` writes a saved credential into a target provider home. The target can
+be given explicitly with `--home`, or derived from `--project` and the
+provider's native project home name. Any existing credential is snapshotted
+before it is replaced.
 
 ```bash
-lairen deploy REF --home PATH [--no-backup] [--refresh] [--force]
+lairen deploy REF [--project PATH] [--home PATH] [--no-backup] [--refresh] [--force]
 ```
 
 ## Target home resolution
@@ -19,7 +20,33 @@ lairen deploy REF --home PATH [--no-backup] [--refresh] [--force]
 | `claude` | `--home ./project/.claude` | `.credentials.json`, plus `oauthAccount` in `.claude.json` |
 | `commandcode` | `--home ./project/.commandcode` | `auth.json` |
 | `cursor` | `--home ~/.config/Cursor/User/globalStorage` | `state.vscdb` |
-| `opencode` | `--home ./project/opencode` | `auth.json` |
+| `opencode` | `--home ./project/.opencode` | `auth.json` |
+
+Omit `--home` to use the provider's native project home:
+
+| Provider | Home under the project |
+|---|---|
+| `kimi` | `.kimi-code` |
+| `codex` | `.codex` |
+| `claude` | `.claude` |
+| `commandcode` | `.commandcode` |
+| `opencode` | `.opencode` |
+| `cursor` | none; `--home` is required |
+
+A relative `--home` resolves under `--project`, or under the current directory
+when `--project` is omitted. When both are omitted, lairen prints the resolved
+target before writing. An absolute `--home` is used as-is; the current
+directory is recorded as the project only when the home is inside it.
+
+```bash
+cd ~/code/project-c
+lairen deploy kimi-6240                 # -> ./.kimi-code
+lairen deploy kimi-6240-1 --home .kimi-code-2
+lairen deploy codex-b                   # -> ./.codex
+```
+
+A project may hold several homes for the same provider. Each deployment is a
+separate association keyed by `(provider, home)`.
 
 Tilde expansion and relative paths are supported. Missing parent directories
 are created during the write. For `cursor`, the target `state.vscdb` must
@@ -55,8 +82,10 @@ only unambiguous choice when short handles collide.
    into an existing structure (see below).
 6. Writes atomically with mode `0600`.
 7. Records `last_deployed_at` and `last_deployed_home` in the registry.
-8. Appends a `deploy` entry to the deployment log, which
-   [`lairen status`](../reference/cli.md#status) uses for lease reporting.
+8. Appends a `deploy` entry with the resolved `project` and `home` to the
+   deployment log, which [`lairen status`](../reference/cli.md#status) and
+   [`lairen associations`](../reference/cli.md#associations) use for lease
+   reporting.
 
 Output:
 

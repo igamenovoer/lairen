@@ -15,15 +15,24 @@ import click
 
 from lairen import __version__
 from lairen import manual as manual_content
-from lairen.deployments import record_event
+from lairen.associations import (
+    Association,
+    AvailableAccount,
+    available_accounts,
+    build_associations,
+)
+from lairen.deployments import DeploymentLog, record_event
 from lairen.errors import LairenError
+from lairen.migrations import MigrationReport, migrate_state
 from lairen.models import Account
 from lairen.paths import Paths
 from lairen.providers import PROVIDERS, get_provider
 from lairen.scan import best_per_account, scan_accounts
+from lairen.schema import require_current_schema, schema_status
 from lairen.status import AccountStatus, ProjectReport, inspect_project
 from lairen.store import CredentialStore, Registry
 from lairen.sync import apply_sync, candidate_homes, check_overwrite, plan_sync
+from lairen.targets import foreign_home_warning, resolve_deploy_target
 from lairen.util import epoch_to_iso, format_remaining, utc_now
 
 
@@ -41,6 +50,7 @@ class LairenGroup(click.Group):
 
 def _context() -> tuple[Paths, Registry, CredentialStore]:
     paths = Paths.resolve().ensure()
+    require_current_schema(paths)
     return paths, Registry(paths.registry_path), CredentialStore(paths.credentials_path)
 
 
@@ -101,6 +111,7 @@ def _record_deployment(
     *,
     home: str | None = None,
     source_home: str | None = None,
+    project: str | Path | None = None,
     previous_ref: str | None = None,
 ) -> None:
     try:
@@ -110,6 +121,7 @@ def _record_deployment(
             account,
             home=home,
             source_home=source_home,
+            project=project,
             previous_ref=previous_ref,
         )
     except OSError as exc:
@@ -120,8 +132,6 @@ def _other_projects(item: AccountStatus) -> str:
     names: list[str] = []
     for lease in item.leases:
         label = lease.project or lease.home
-        if lease.legacy:
-            label = f"{label} (last deploy)"
         if lease.live is False:
             label = f"{label} (overwritten)"
         if label not in names:
@@ -180,6 +190,100 @@ def _render_status(report: ProjectReport) -> None:
     )
     for item in report.accounts:
         _status_detail(item)
+
+
+def _association_key(item: Association, group_by: str) -> str:
+    if group_by == "account":
+        return item.ref
+    return item.project or "(unattributed)"
+
+
+def _render_associations(items: list[Association], group_by: str) -> None:
+    if not items:
+        click.echo("no deployments recorded")
+        return
+
+    groups: dict[str, list[Association]] = {}
+    for item in items:
+        groups.setdefault(_association_key(item, group_by), []).append(item)
+
+    for position, key in enumerate(sorted(groups)):
+        if position:
+            click.echo()
+        group = groups[key]
+        rows: list[tuple[Any, ...]]
+        if group_by == "account":
+            alias = group[0].alias
+            click.echo(f"{key}" + (f"  alias={alias}" if alias else ""))
+            rows = [
+                (
+                    item.project or "(unattributed)",
+                    item.home,
+                    item.deployed_at or "-",
+                    item.state,
+                )
+                for item in sorted(
+                    group,
+                    key=lambda entry: (
+                        entry.deployed_at or "",
+                        entry.project or "",
+                        entry.home,
+                    ),
+                    reverse=True,
+                )
+            ]
+            _print_table(("PROJECT", "HOME", "DEPLOYED AT", "STATE"), rows)
+        else:
+            click.echo(key)
+            rows = [
+                (
+                    item.ref,
+                    item.alias or "-",
+                    item.home,
+                    item.deployed_at or "-",
+                    item.state,
+                )
+                for item in sorted(
+                    group,
+                    key=lambda entry: (
+                        entry.deployed_at or "",
+                        entry.ref,
+                        entry.home,
+                    ),
+                    reverse=True,
+                )
+            ]
+            _print_table(
+                ("ACCOUNT", "ALIAS", "HOME", "DEPLOYED AT", "STATE"),
+                rows,
+            )
+
+
+def _render_available(items: list[AvailableAccount]) -> None:
+    if not items:
+        click.echo("no available accounts")
+        return
+    rows = []
+    for item in items:
+        last = item.last_assignment
+        if last is None:
+            last_text = "never deployed"
+        else:
+            where = last.project or last.home
+            last_text = f"{where} ({last.state} {last.deployed_at or 'unknown'})"
+        rows.append(
+            (
+                item.account.ref,
+                item.account.alias or "-",
+                item.account.label,
+                item.account.provider,
+                last_text,
+            )
+        )
+    _print_table(
+        ("REF", "ALIAS", "LABEL", "PROVIDER", "LAST ASSIGNMENT"),
+        rows,
+    )
 
 
 @click.group(
@@ -321,6 +425,101 @@ def list_accounts(json_output: bool) -> None:
 
 
 @cli.command()
+@click.option(
+    "--group-by",
+    type=click.Choice(("account", "project")),
+    default="account",
+    show_default=True,
+    help="group the rows by account or by project",
+)
+@click.option(
+    "--account",
+    "account_refs",
+    multiple=True,
+    help="limit to one account ref (repeatable)",
+)
+@click.option(
+    "--project",
+    "project_paths",
+    multiple=True,
+    type=click.Path(path_type=Path),
+    help="limit to one project directory (repeatable)",
+)
+@click.option(
+    "--provider",
+    "provider_names",
+    multiple=True,
+    type=click.Choice(sorted(PROVIDERS)),
+    help="limit to one provider (repeatable)",
+)
+@click.option("--active-only", is_flag=True, help="hide overwritten assignments")
+@click.option("--json", "json_output", is_flag=True, help="emit machine-readable JSON")
+def associations(
+    group_by: str,
+    account_refs: tuple[str, ...],
+    project_paths: tuple[Path, ...],
+    provider_names: tuple[str, ...],
+    active_only: bool,
+    json_output: bool,
+) -> None:
+    """List account/project associations from the deployment ledger."""
+    paths, registry, _ = _context()
+    accounts = (
+        [registry.resolve(ref) for ref in account_refs]
+        if account_refs
+        else registry.list()
+    )
+    items = build_associations(accounts, DeploymentLog(paths.deployments_path))
+
+    if provider_names:
+        allowed = set(provider_names)
+        items = [item for item in items if item.provider in allowed]
+    if project_paths:
+        wanted = {
+            str(path.expanduser().resolve()) for path in project_paths
+        }
+        items = [
+            item
+            for item in items
+            if item.project and str(Path(item.project).resolve()) in wanted
+        ]
+    if active_only:
+        items = [item for item in items if item.state == "active"]
+
+    if json_output:
+        click.echo(json.dumps([item.to_dict() for item in items], indent=2))
+        return
+    _render_associations(items, group_by)
+
+
+@cli.command()
+@click.option(
+    "--provider",
+    "provider_names",
+    multiple=True,
+    type=click.Choice(sorted(PROVIDERS)),
+    help="limit to one provider (repeatable)",
+)
+@click.option("--json", "json_output", is_flag=True, help="emit machine-readable JSON")
+def available(provider_names: tuple[str, ...], json_output: bool) -> None:
+    """List registered accounts with no active deployment."""
+    paths, registry, _ = _context()
+    accounts = registry.list()
+    if provider_names:
+        allowed = set(provider_names)
+        accounts = [account for account in accounts if account.provider in allowed]
+
+    items = available_accounts(
+        accounts,
+        build_associations(accounts, DeploymentLog(paths.deployments_path)),
+    )
+    if json_output:
+        click.echo(json.dumps([item.to_dict() for item in items], indent=2))
+        return
+    _render_available(items)
+
+
+@cli.command()
 @click.argument("ref")
 def show(ref: str) -> None:
     """Show one account and its local usage metadata."""
@@ -340,10 +539,14 @@ def show(ref: str) -> None:
 @cli.command()
 @click.argument("ref")
 @click.option(
-    "--home",
-    required=True,
+    "--project",
     type=click.Path(path_type=Path),
-    help="target provider home",
+    help="project root used for attribution and relative --home resolution",
+)
+@click.option(
+    "--home",
+    type=click.Path(path_type=Path),
+    help="target provider home; defaults to <project>/<provider native name>",
 )
 @click.option("--no-backup", is_flag=True, help="skip the pre-deploy snapshot")
 @click.option(
@@ -356,13 +559,26 @@ def show(ref: str) -> None:
     is_flag=True,
     help="overwrite a target whose credential is newer than the store",
 )
-def deploy(ref: str, home: Path, no_backup: bool, refresh: bool, force: bool) -> None:
+def deploy(
+    ref: str,
+    project: Path | None,
+    home: Path | None,
+    no_backup: bool,
+    refresh: bool,
+    force: bool,
+) -> None:
     """Write a saved credential into a target home."""
     paths, registry, store = _context()
     account = registry.resolve(ref)
     _warn_experimental(account.provider)
     adapter = get_provider(account.provider)
-    target_home = adapter.resolve_home(home).resolve()
+    target = resolve_deploy_target(adapter, project, home)
+    target_home = target.home
+    if home is None:
+        click.echo(f"target: {target_home}")
+    warning = foreign_home_warning(adapter, target_home)
+    if warning:
+        click.echo(f"warning: {warning}", err=True)
     target_path = adapter.credential_path_for(target_home)
     blob = store.get(account.provider, account.id)
 
@@ -421,6 +637,7 @@ def deploy(ref: str, home: Path, no_backup: bool, refresh: bool, force: bool) ->
         account,
         home=str(target_home),
         source_home=account.source_home,
+        project=target.project,
     )
     click.echo(f"deployed {account.ref} -> {written}")
     if snapshot is not None:
@@ -726,6 +943,68 @@ def providers() -> None:
     )
 
 
+def _render_migration(report: MigrationReport) -> None:
+    if report.fresh:
+        click.echo(f"initialized lairen state schema v{report.to_version}")
+        return
+    if report.from_version == report.to_version and not report.changed:
+        if report.unattributed:
+            click.echo(
+                f"schema: v{report.to_version} (current); "
+                "no matching project mappings"
+            )
+            click.echo(f"unattributed   : {len(report.unattributed)}")
+            for ref, home in report.unattributed:
+                suffix = f"  {home}" if home else ""
+                click.echo(f"  unattributed {ref}{suffix}")
+        else:
+            click.echo(f"schema: v{report.to_version} (current); nothing to migrate")
+        return
+    if report.from_version == report.to_version:
+        click.echo(f"schema: v{report.to_version} (current)")
+    else:
+        click.echo(f"schema: v{report.from_version} -> v{report.to_version}")
+    click.echo(f"deploy entries : {report.deploy_entries}")
+    click.echo(f"project filled : {report.project_filled}")
+    click.echo(f"legacy pointers: {report.legacy_materialized}")
+    click.echo(f"unattributed   : {len(report.unattributed)}")
+    for ref, home in report.unattributed:
+        suffix = f"  {home}" if home else ""
+        click.echo(f"  unattributed {ref}{suffix}")
+    if report.dry_run:
+        click.echo("dry run: no files written")
+    elif report.backup_path:
+        click.echo(f"backup: {report.backup_path}")
+
+
+@cli.command()
+@click.option("--dry-run", is_flag=True, help="report changes without writing")
+@click.option(
+    "--project",
+    "project_maps",
+    multiple=True,
+    metavar="HOME=PROJECT",
+    help="map a custom home directory to its project (repeatable)",
+)
+@click.option("--no-backup", is_flag=True, help="skip the pre-migration backup")
+def migrate(dry_run: bool, project_maps: tuple[str, ...], no_backup: bool) -> None:
+    """Migrate lairen state to the current schema version."""
+    paths = Paths.resolve().ensure()
+    mapping: dict[str, str] = {}
+    for item in project_maps:
+        home, separator, project = item.partition("=")
+        if not separator or not home.strip() or not project.strip():
+            raise LairenError("--project must use HOME=PROJECT")
+        mapping[home.strip()] = project.strip()
+    report = migrate_state(
+        paths,
+        mapping,
+        dry_run=dry_run,
+        backup=not no_backup,
+    )
+    _render_migration(report)
+
+
 @cli.command()
 def doctor() -> None:
     """Show resolved paths, account counts, and provider homes."""
@@ -735,6 +1014,7 @@ def doctor() -> None:
     click.echo(f"config dir : {paths.config_dir}")
     click.echo(f"data dir   : {paths.data_dir}")
     click.echo(f"state dir  : {paths.state_dir}")
+    click.echo(f"schema     : {schema_status(paths)}")
     click.echo(f"accounts   : {len(registry.load())}")
     click.echo(f"credentials: {store.count()}")
     for adapter in PROVIDERS.values():
@@ -771,6 +1051,7 @@ def status(
 ) -> None:
     """Show which accounts a project directory is using."""
     paths = Paths.resolve()
+    require_current_schema(paths, initialize=False)
     project = directory or Path.cwd()
     report = inspect_project(
         project,

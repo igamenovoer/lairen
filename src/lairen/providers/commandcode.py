@@ -18,6 +18,7 @@ class CommandCodeProvider(Provider):
     deploy_note = "API-key auth; writes the official apiKey shape"
     DEFAULT_HOME = Path.home() / ".commandcode"
     CREDENTIAL_RELPATH = Path("auth.json")
+    PROJECT_HOME_NAME = ".commandcode"
 
     @staticmethod
     def _key_from_value(value: Any) -> str | None:

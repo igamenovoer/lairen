@@ -11,9 +11,11 @@ directories with mode `0700` and files with mode `0600`.
 | Config | `${XDG_CONFIG_HOME:-~/.config}/lairen/` |
 | Registry | `${XDG_CONFIG_HOME:-~/.config}/lairen/registry.json` |
 | Data | `${XDG_DATA_HOME:-~/.local/share}/lairen/` |
+| Schema marker | `${XDG_DATA_HOME:-~/.local/share}/lairen/schema.json` |
 | Credential store | `${XDG_DATA_HOME:-~/.local/share}/lairen/credentials.json` |
 | State | `~/.local/share/lairen/state/` |
 | Snapshots | `~/.local/share/lairen/state/snapshots/` |
+| Migration backups | `~/.local/share/lairen/state/migrations/` |
 | Deployment log | `~/.local/share/lairen/state/deployments.jsonl` |
 
 `lairen doctor` prints the paths that are actually in effect.
@@ -33,7 +35,9 @@ The layout becomes:
 /tmp/lairen-state/
   config/registry.json
   data/credentials.json
+  data/schema.json
   data/state/snapshots/
+  data/state/migrations/
   data/state/deployments.jsonl
 ```
 
@@ -138,9 +142,25 @@ lease.
 
 `lairen status` uses deploy entries to report which other projects hold an
 account, checking each target's current credential and marking overwritten
-targets. History starts when this log is first written; older accounts fall
-back to the single `last_deployed_home` registry field and are marked as a
-legacy last deploy.
+targets. Legacy `last_deployed_home` pointers are materialized as deploy entries
+by [`lairen migrate`](../reference/cli.md#migrate); they are not read at
+runtime.
+
+## Schema and migrations
+
+`data/schema.json` records the state version as `{"version": N}`. The current
+version is 2. There is no automatic migration: commands refuse to read state
+that has no marker or an unsupported version and point at `lairen migrate`.
+
+- Existing state without `schema.json` is legacy version 1.
+- Versions below the minimum supported version must be migrated manually or
+  the lairen state recreated.
+- Versions newer than the installed lairen require upgrading lairen.
+
+`lairen migrate` backs up the registry, deployment log, and schema marker to
+`state/migrations/<UTC timestamp>/` before writing, unless `--no-backup` is
+given. It also accepts `--project HOME=PROJECT` for custom home names that
+cannot be inferred.
 
 ## Provider home resolution
 
@@ -151,8 +171,22 @@ For `register`, a provider home is resolved in this order:
    `KIMI_CODE_HOME`
 3. the provider's default home
 
-For `deploy`, `--home` is required. lairen never reads an environment variable
-to choose a deployment target.
+For `deploy`, `--home` selects the target and may be relative to `--project`;
+when omitted, lairen uses `<project>/<provider native name>`. lairen never
+reads an environment variable to choose a deployment target.
+
+| Provider | Native project home |
+|---|---|
+| `claude` | `.claude` |
+| `codex` | `.codex` |
+| `commandcode` | `.commandcode` |
+| `cursor` | none; `--home` is required |
+| `kimi` | `.kimi-code` |
+| `opencode` | `.opencode` |
+
+Deploy entries also store the resolved `project`, so custom home directory
+names keep their project association. `lairen associations` and
+`lairen available` read those entries without scanning project directories.
 
 | Provider | Environment variable | Default home |
 |---|---|---|

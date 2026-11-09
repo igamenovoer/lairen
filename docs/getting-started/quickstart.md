@@ -65,17 +65,26 @@ JSON. `lairen usage` prints an expiry table.
 
 ## 4. Deploy into a target home
 
-`deploy` always requires an explicit `--home`; lairen never infers a target from
-an environment variable.
+`--home` names the target provider home. Omit it to use the project's native
+home name, or pass `--project` to attribute the deployment and resolve a
+relative `--home`.
 
 ```bash
-lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
+cd ~/code/project-b
+lairen deploy codex/alice@example.com                  # ./.codex
+lairen deploy kimi-6240 --home .kimi-code-2
+lairen deploy codex/alice@example.com --project ~/code/project-b --home .codex
 ```
 
 ```text
+target: /home/alice/code/project-b/.codex
 deployed codex/alice@example.com -> /home/alice/code/project-b/.codex/auth.json
 snapshot: /home/alice/.local/share/lairen/state/snapshots/codex-20261026T120000000000Z/auth.json
 ```
+
+`lairen associations` lists the resulting account/project graph, and
+`lairen available` lists accounts with no active deployment. Neither command
+scans the filesystem; both use the deployment ledger.
 
 If the target file already existed, lairen saved a copy in its snapshot
 directory before replacing it. Pass `--no-backup` to skip the snapshot.

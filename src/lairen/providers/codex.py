@@ -15,6 +15,7 @@ class CodexProvider(Provider):
     tested = True
     DEFAULT_HOME = Path.home() / ".codex"
     CREDENTIAL_RELPATH = Path("auth.json")
+    PROJECT_HOME_NAME = ".codex"
 
     def parse_identity(self, home: Path, blob: str) -> Identity:
         data = self.load_json(blob)

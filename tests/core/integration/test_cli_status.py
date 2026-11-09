@@ -210,14 +210,7 @@ def test_status_shows_other_projects_from_the_ledger(tmp_path, monkeypatch) -> N
     assert leases[0]["project"] == str(project_b)
     assert leases[0]["home"] == str(project_b / ".codex")
     assert leases[0]["deployed_at"]
-    assert leases[0]["legacy"] is False
     assert leases[0]["live"] is True
-
-    log = tmp_path / "lairen" / "state" / "deployments.jsonl"
-    log.unlink()
-    result = runner.invoke(cli, ["status", str(project_a)])
-    assert result.exit_code == 0, result.output
-    assert "(last deploy)" in result.output
 
 
 def test_status_marks_an_overwritten_lease(tmp_path, monkeypatch) -> None:
