@@ -56,7 +56,7 @@ def test_legacy_state_blocks_commands_until_migrated(tmp_path, monkeypatch) -> N
     monkeypatch.setenv("LAIREN_HOME", str(root))
     write_legacy_state(root)
 
-    result = CliRunner().invoke(cli, ["list"])
+    result = CliRunner().invoke(cli, ["account", "list"])
 
     assert result.exit_code == 1
     assert "lairen migrate" in result.output
@@ -70,13 +70,15 @@ def test_migrate_dry_run_then_apply(tmp_path, monkeypatch) -> None:
 
     result = runner.invoke(cli, ["migrate", "--dry-run"])
     assert result.exit_code == 0, result.output
-    assert "schema: v1 -> v2" in result.output
+    assert "schema: v1 -> v3" in result.output
+    assert "holder unset" in result.output
+    assert "lairen account set-home" in result.output
     assert "dry run: no files written" in result.output
     assert not (root / "data" / "schema.json").exists()
 
     result = runner.invoke(cli, ["migrate"])
     assert result.exit_code == 0, result.output
-    assert "schema: v1 -> v2" in result.output
+    assert "schema: v1 -> v3" in result.output
     schema = json.loads((root / "data" / "schema.json").read_text(encoding="utf-8"))
     assert schema["version"] == CURRENT_SCHEMA_VERSION
     backups = list((root / "state" / "migrations").iterdir())
@@ -84,7 +86,11 @@ def test_migrate_dry_run_then_apply(tmp_path, monkeypatch) -> None:
     assert (backups[0] / "registry.json").is_file()
     assert (backups[0] / "deployments.jsonl").is_file()
 
-    result = runner.invoke(cli, ["list"])
+    registry = json.loads((root / "config" / "registry.json").read_text(encoding="utf-8"))
+    assert registry[0]["holder"] is None
+    assert registry[0]["auth"]["source_home"] == "/source"
+
+    result = runner.invoke(cli, ["account", "list"])
     assert result.exit_code == 0, result.output
     assert "kimi/user-1--device-1" in result.output
 
@@ -107,11 +113,12 @@ def test_migrate_attributes_custom_home_with_project_option(tmp_path, monkeypatc
     )
     assert result.exit_code == 0, result.output
 
-    result = runner.invoke(cli, ["associations", "--json"])
+    result = runner.invoke(cli, ["deploy", "list", "--json"])
     assert result.exit_code == 0, result.output
     records = json.loads(result.output)
     assert len(records) == 1
     assert records[0]["project"] == str(project.resolve())
+    assert records[0]["mode"] == "copy"
 
 
 def test_migrate_reports_unattributed_custom_home(tmp_path, monkeypatch) -> None:
@@ -142,9 +149,9 @@ def test_migrate_applies_a_late_mapping_on_current_state(tmp_path, monkeypatch) 
     )
 
     assert result.exit_code == 0, result.output
-    assert "schema: v2 (current)" in result.output
+    assert "schema: v3 (current)" in result.output
     assert "project filled : 1" in result.output
-    records = json.loads(runner.invoke(cli, ["associations", "--json"]).output)
+    records = json.loads(runner.invoke(cli, ["deploy", "list", "--json"]).output)
     assert records[0]["project"] == str(project.resolve())
 
 

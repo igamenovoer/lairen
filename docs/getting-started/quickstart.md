@@ -1,171 +1,233 @@
 # Quick start
 
-This walkthrough registers a Codex login, lists it, deploys it into a second
-project, and checks its expiry. The Kimi path works the same way with a Kimi
-home and a Kimi credential file.
+This walkthrough records a Codex login, inspects it, deploys it three ways,
+pulls refreshed auth back into lairen, and checks a project. The Kimi path
+works the same way with a Kimi home.
 
 lairen never prints access tokens or refresh tokens. Commands print account
-references, labels, paths, and expiry metadata only.
+references, labels, paths, holder state, and expiry metadata only.
 
 ## 1. Find an existing login
 
-Point `scan` at a directory that contains provider homes. Depth `1` inspects the
-directory itself plus its immediate children, which covers the common
-`<project>/.codex` layout.
+Point `account scan` at a directory that contains provider homes. Depth `1`
+inspects the directory itself plus its immediate children.
 
 ```bash
-lairen scan ~/code --depth 2
+lairen account scan ~/code --depth 2
 ```
 
 ```text
-PROVIDER  REF                              HOME                              DEPTH
-codex     codex/alice@example.com          /home/alice/code/project-a/.codex  2
-kimi      kimi/u_123--d_456               /home/alice/kimi-homes/kimi-1      1
+PROVIDER  REF                      HOME                              DEPTH
+codex     codex/alice@example.com  /home/alice/code/project-a/.codex  2
+kimi      kimi/u_123--d_456       /home/alice/kimi-homes/kimi-1      1
 ```
 
 See [Scan for accounts](../guides/scanning.md) for pattern details and
-`--register`.
+`--add`.
 
-## 2. Register the login you want to keep
+## 2. Add the account
 
 ```bash
-lairen register codex --home ~/code/project-a/.codex --alias work
+lairen account add --provider codex \
+  --home ~/codex-holders/codex-aj --alias aj
 ```
 
 ```text
-registered codex/alice@example.com  label=alice@example.com  source=/home/alice/code/project-a/.codex  alias=work
+account codex/alice@example.com  alias=aj  auth=stored  holder=/home/alice/codex-holders/codex-aj  state=ok
 ```
 
-The alias is optional. It gives the account a stable short handle that works
-anywhere a ref does. Manage aliases later with `lairen alias`.
+`account add` reads the live credential, derives the identity, stores auth, and
+records the home as the account holder. The holder home is left untouched.
 
-lairen reads `auth.json`, derives an account id from the token claims, and
-stores the credential blob in its own store. The source home is left untouched.
-
-Use `--label` to override the display label:
+Useful variants:
 
 ```bash
-lairen register kimi --home ~/kimi-homes/kimi-1 --label "kimi-lease-1"
+# Record a holder without copying the credential into lairen.
+lairen account add --provider codex --home ~/codex-holders/codex-temp --holder-only
+
+# Store auth without recording a holder.
+lairen account add --provider codex --home ~/tmp/codex-once --no-holder
+
+# Add every discovered account, newest copy per identity.
+lairen account scan ~/codex-holders --depth 1 --add
 ```
 
-## 3. Inspect the registry
+## 3. Inspect the account
 
 ```bash
-lairen list
+lairen account list
 ```
 
 ```text
-REF                          LABEL              SOURCE                              LAST DEPLOYED
-codex/alice@example.com      alice@example.com  /home/alice/code/project-a/.codex   -
-kimi/u_123--d_456            kimi-lease-1       /home/alice/kimi-homes/kimi-1       -
+REF                       ALIAS  LABEL              AUTH    HOLDER                            HOLDER STATE     DEPLOYED
+codex/alice@example.com   aj     alice@example.com  stored  /home/alice/codex-holders/codex-aj  ok              -
 ```
 
-`lairen show <ref>` prints the full account record plus local usage metadata as
-JSON. `lairen usage` prints an expiry table.
+`account show` adds auth metadata, live holder identity, usage, and
+deployments:
 
-## 4. Deploy into a target home
+```bash
+lairen account show aj
+lairen account show aj --json
+```
 
-`--home` names the target provider home. Omit it to use the project's native
-home name, or pass `--project` to attribute the deployment and resolve a
-relative `--home`.
+`account usage` prints expiry for every account:
+
+```bash
+lairen account usage
+lairen account usage --json
+```
+
+`stats` is an alias for `account usage`.
+
+## 4. Deploy by copying
 
 ```bash
 cd ~/code/project-b
-lairen deploy codex/alice@example.com                  # ./.codex
-lairen deploy kimi-6240 --home .kimi-code-2
-lairen deploy codex/alice@example.com --project ~/code/project-b --home .codex
+lairen deploy copy aj                     # ./.codex
+lairen deploy copy aj --home .codex-2     # custom target name
+lairen deploy copy aj --project ~/code/project-b
 ```
 
 ```text
 target: /home/alice/code/project-b/.codex
 deployed codex/alice@example.com -> /home/alice/code/project-b/.codex/auth.json
-snapshot: /home/alice/.local/share/lairen/state/snapshots/codex-20261026T120000000000Z/auth.json
+snapshot: /home/alice/.local/share/lairen/state/snapshots/codex-20261112T120000000000Z/auth.json
+note: holder /home/alice/codex-holders/codex-aj is now possibly stale; ...
 ```
 
-`lairen associations` lists the resulting account/project graph, and
-`lairen available` lists accounts with no active deployment. Neither command
-scans the filesystem; both use the deployment ledger.
+Copying to a home other than the holder marks the holder possibly stale. The
+copy still succeeds. If the target already existed, lairen saved a snapshot
+before replacing it. Pass `--no-backup` to skip it.
 
-If the target file already existed, lairen saved a copy in its snapshot
-directory before replacing it. Pass `--no-backup` to skip the snapshot.
-
-The alias `work` addresses the same account, so this is equivalent:
+`--sync` pulls fresher auth from the holder or known deployments before
+writing:
 
 ```bash
-lairen deploy work --home ~/code/project-b/.codex
+lairen deploy copy aj --project ~/code/project-b --sync
 ```
 
-You can also use a bare unique id or label:
+## 5. Deploy by linking
 
 ```bash
-lairen deploy 'alice@example.com' --home ~/code/project-b/.codex
-```
-
-See [Deploy credentials](../guides/deploying.md) for resolution rules and
-provider-specific merge behavior.
-
-## 5. Check expiry
-
-```bash
-lairen usage
+lairen deploy link aj --project ~/code/project-a
 ```
 
 ```text
-REF                          ACCESS EXPIRES (UTC)    REMAINING  LAST DEPLOYED
-codex/alice@example.com      2026-11-25T12:00:00+00:00  in 30d0h   2026-10-26T12:00:00+00:00
-kimi/u_123--d_456            2026-11-01T08:30:00+00:00  in 6d20h   -
+linked codex/alice@example.com -> /home/alice/code/project-a/.codex  home=/home/alice/codex-holders/codex-aj
 ```
 
-Machine-readable output:
+The project gets a symlink, not a copy. Sessions, caches, and refreshed tokens
+stay in the holder home. `deploy link` refuses to replace a real directory; it
+replaces another symlink only with `--force`.
+
+Remove a project link with:
 
 ```bash
-lairen usage codex/alice@example.com --json
-lairen usage --json
+lairen deploy unlink aj --project ~/code/project-a --yes
 ```
 
-`stats` is an alias for `usage`.
-
-## 6. Remove an account
+## 6. Deploy into the current shell
 
 ```bash
-lairen remove codex/alice@example.com --yes
+eval "$(lairen deploy env aj)"
 ```
 
-This deletes both the registry record and the stored credential blob. It does
-not touch any deployed home or snapshot.
+For Bash/Zsh this prints:
 
-## Check a project
+```text
+export CODEX_HOME='/home/alice/codex-holders/codex-aj'
+```
 
-`lairen status` reads a project's live provider homes and reports which accounts
-are in use, their aliases and expiry, and which other projects hold them:
+`--shell fish`, `csh`, `tcsh`, `powershell`, `pwsh`, `nu`, and `nushell` are
+supported. `auto` detects from `$SHELL` and defaults to POSIX `sh`.
+
+`env` prints the command to stdout and warnings to stderr, so `eval` is safe.
+
+## 7. Pull refreshed auth back
+
+The holder or a deployed home may refresh its tokens. Capture the freshest
+same-identity credential into lairen's store:
+
+```bash
+lairen account sync aj
+lairen account sync aj --home ~/codex-holders/codex-aj
+lairen account sync aj --holder-only
+lairen account sync aj --dry-run
+```
+
+`sync` never changes the holder. Use `account set-home` for that.
+
+## 8. Check a project
 
 ```bash
 cd ~/code/project-b
 lairen status
 lairen status --json
-lairen status --strict      # exit 1 for unregistered, invalid, or drifted
+lairen status --strict
 ```
 
-See the [status reference](../reference/cli.md#status).
+`status` reads the project's live homes and reports the account, source
+(`copy`/`link`), auth state, holder state, expiry, and other projects. It also
+reports a shell binding when `CODEX_HOME`/`KIMI_CODE_HOME` points at a holder.
 
-## A complete project swap
+`--strict` exits 1 for unregistered, invalid, drifted (copy source),
+missing-auth (copy source), stale holder, missing holder, and logged-out
+holder states. The error names the
+reason and the repair command.
 
-To move the active Codex identity from project A to project B while keeping A's
-copy recoverable:
+## 9. Replace the holder
 
 ```bash
-lairen register codex --home ~/code/project-a/.codex
-lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
+lairen account set-home aj --home ~/codex-holders/codex-aj-v2
+lairen account set-home aj --home ~/codex-holders/codex-aj-v2 --sync
 ```
 
-Before starting an agent in project B, stop any agent that is still running in
-project A. OAuth refresh tokens rotate, and two live homes refreshing the same
-token can invalidate each other. The [security model](../concepts/security.md)
-explains the mechanics.
+The new home must hold the same identity. If the identity changed, use
+`account update`:
+
+```bash
+lairen account update aj --home ~/kimi-homes/kimi-2064-2
+```
+
+`update` refreshes auth, sets the new holder, and keeps the alias. The ref may
+change when the identity changes.
+
+## 10. Remove an account
+
+```bash
+lairen account remove aj --yes
+```
+
+This deletes the account record and stored auth. Holder homes and project
+symlinks remain on disk. The command warns about active links.
+
+## Migrating from lairen 1.x
+
+Schema v3 is required. Commands refuse old state until you migrate:
+
+```bash
+lairen migrate --dry-run
+lairen migrate
+```
+
+Migration converts `source_home` to `auth.source_home` but does **not** adopt
+it as a holder. It reports candidate homes:
+
+```text
+holder unset   : 1
+  codex/alice@example.com  --home /home/alice/codex-holders/codex-aj
+  fix: lairen account set-home REF --home PATH
+```
+
+Attach holders explicitly:
+
+```bash
+lairen account set-home codex/alice@example.com \
+  --home /home/alice/codex-holders/codex-aj
+```
 
 ## Working as an agent
-
-lairen ships a compact usage manual for other agents:
 
 ```bash
 lairen manual all
@@ -178,5 +240,5 @@ Individual topics are available through `lairen manual <topic>`; see the
 ## Next steps
 
 - [Identities and refs](../concepts/identities.md): why Kimi refs include a device id.
-- [Scan for accounts](../guides/scanning.md): depth semantics and duplicate handling.
-- [CLI reference](../reference/cli.md): every option and exit code.
+- [Deploy an account](../guides/deploying.md): copy, link, env, and staleness.
+- [Storage and paths](../concepts/storage.md): the v3 account record.

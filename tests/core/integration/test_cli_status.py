@@ -1,4 +1,4 @@
-"""CLI project status with real project homes and the deployment ledger."""
+"""CLI project status with project homes and the deployment ledger."""
 
 from __future__ import annotations
 
@@ -67,25 +67,25 @@ def write_kimi(
     )
 
 
+def add(
+    runner: CliRunner,
+    provider: str,
+    home: Path,
+    alias: str | None = None,
+) -> None:
+    args = ["account", "add", "--provider", provider, "--home", str(home)]
+    if alias:
+        args.extend(["--alias", alias])
+    result = runner.invoke(cli, args)
+    assert result.exit_code == 0, result.output
+
+
 def test_status_reports_current_registered_account(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LAIREN_HOME", str(tmp_path / "lairen"))
     project = tmp_path / "project"
     write_codex(project / ".codex")
     runner = CliRunner()
-    assert (
-        runner.invoke(
-            cli,
-            [
-                "register",
-                "codex",
-                "--home",
-                str(project / ".codex"),
-                "--alias",
-                "work",
-            ],
-        ).exit_code
-        == 0
-    )
+    add(runner, "codex", project / ".codex", "work")
 
     result = runner.invoke(cli, ["status", str(project)])
     assert result.exit_code == 0, result.output
@@ -102,6 +102,8 @@ def test_status_reports_current_registered_account(tmp_path, monkeypatch) -> Non
     account = payload["accounts"][0]
     assert account["state"] == "current"
     assert account["alias"] == "work"
+    assert account["source"] == "copy"
+    assert account["holder_state"] == "ok"
     assert account["leases"] == []
 
 
@@ -114,16 +116,22 @@ def test_status_flags_unregistered_and_strict(tmp_path, monkeypatch) -> None:
     result = runner.invoke(cli, ["status", str(project)])
     assert result.exit_code == 0, result.output
     assert "unregistered" in result.output
-    assert f"lairen register codex --home {project / '.codex'}" in result.output
+    assert (
+        f"lairen account add --provider codex --home {project / '.codex'}"
+        in result.output
+    )
 
     result = runner.invoke(cli, ["status", str(project), "--strict"])
     assert result.exit_code == 1
     assert "strict status failed" in result.output
+    assert "unregistered account" in result.output
+    assert "fix:" in result.output
 
     result = runner.invoke(cli, ["status", str(project), "--json"])
     payload = json.loads(result.output)
     assert payload["ok"] is False
     assert payload["accounts"][0]["state"] == "unregistered"
+    assert payload["problems"][0]["kind"] == "unregistered"
 
 
 def test_status_flags_invalid_credentials(tmp_path, monkeypatch) -> None:
@@ -147,12 +155,7 @@ def test_status_detects_drifted_credential(tmp_path, monkeypatch) -> None:
     project = tmp_path / "project"
     write_codex(project / ".codex", last_refresh="old")
     runner = CliRunner()
-    assert (
-        runner.invoke(
-            cli, ["register", "codex", "--home", str(project / ".codex")]
-        ).exit_code
-        == 0
-    )
+    add(runner, "codex", project / ".codex")
     write_codex(
         project / ".codex",
         last_refresh="new",
@@ -162,10 +165,11 @@ def test_status_detects_drifted_credential(tmp_path, monkeypatch) -> None:
     result = runner.invoke(cli, ["status", str(project)])
     assert result.exit_code == 0, result.output
     assert "drifted" in result.output
-    assert "project expires" in result.output
 
     result = runner.invoke(cli, ["status", str(project), "--strict"])
     assert result.exit_code == 1
+    assert "drifted" in result.output
+    assert "lairen account sync" in result.output
 
     result = runner.invoke(cli, ["status", str(project), "--json"])
     account = json.loads(result.output)["accounts"][0]
@@ -180,22 +184,9 @@ def test_status_shows_other_projects_from_the_ledger(tmp_path, monkeypatch) -> N
     project_b = tmp_path / "project-b"
     write_codex(project_a / ".codex")
     runner = CliRunner()
-    assert (
-        runner.invoke(
-            cli,
-            [
-                "register",
-                "codex",
-                "--home",
-                str(project_a / ".codex"),
-                "--alias",
-                "work",
-            ],
-        ).exit_code
-        == 0
-    )
+    add(runner, "codex", project_a / ".codex", "work")
     result = runner.invoke(
-        cli, ["deploy", "work", "--home", str(project_b / ".codex")]
+        cli, ["deploy", "copy", "work", "--home", str(project_b / ".codex")]
     )
     assert result.exit_code == 0, result.output
 
@@ -211,6 +202,8 @@ def test_status_shows_other_projects_from_the_ledger(tmp_path, monkeypatch) -> N
     assert leases[0]["home"] == str(project_b / ".codex")
     assert leases[0]["deployed_at"]
     assert leases[0]["live"] is True
+    assert leases[0]["mode"] == "copy"
+    assert account["holder_state"] == "possibly-stale"
 
 
 def test_status_marks_an_overwritten_lease(tmp_path, monkeypatch) -> None:
@@ -220,32 +213,14 @@ def test_status_marks_an_overwritten_lease(tmp_path, monkeypatch) -> None:
     write_codex(project_a / ".codex", email="alice@example.com")
     write_codex(project_b / ".codex", email="bob@example.com")
     runner = CliRunner()
-    assert (
-        runner.invoke(
-            cli, ["register", "codex", "--home", str(project_a / ".codex"),
-                  "--alias", "alice"]
-        ).exit_code
-        == 0
-    )
-    assert (
-        runner.invoke(
-            cli, ["register", "codex", "--home", str(project_b / ".codex"),
-                  "--alias", "bob"]
-        ).exit_code
-        == 0
-    )
-    assert (
-        runner.invoke(
-            cli, ["deploy", "alice", "--home", str(project_b / ".codex")]
-        ).exit_code
-        == 0
-    )
-    assert (
-        runner.invoke(
-            cli, ["deploy", "bob", "--home", str(project_b / ".codex")]
-        ).exit_code
-        == 0
-    )
+    add(runner, "codex", project_a / ".codex", "alice")
+    add(runner, "codex", project_b / ".codex", "bob")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "alice", "--home", str(project_b / ".codex")]
+    ).exit_code == 0
+    assert runner.invoke(
+        cli, ["deploy", "copy", "bob", "--home", str(project_b / ".codex")]
+    ).exit_code == 0
 
     result = runner.invoke(cli, ["status", str(project_a)])
     assert result.exit_code == 0, result.output
@@ -263,18 +238,8 @@ def test_status_reports_both_providers(tmp_path, monkeypatch) -> None:
     write_codex(project / ".codex")
     write_kimi(project / ".kimi-code")
     runner = CliRunner()
-    assert (
-        runner.invoke(
-            cli, ["register", "codex", "--home", str(project / ".codex")]
-        ).exit_code
-        == 0
-    )
-    assert (
-        runner.invoke(
-            cli, ["register", "kimi", "--home", str(project / ".kimi-code")]
-        ).exit_code
-        == 0
-    )
+    add(runner, "codex", project / ".codex")
+    add(runner, "kimi", project / ".kimi-code")
 
     result = runner.invoke(cli, ["status", str(project), "--json"])
     assert result.exit_code == 0, result.output

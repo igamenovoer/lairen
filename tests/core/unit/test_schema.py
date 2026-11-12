@@ -84,3 +84,13 @@ def test_schema_status_does_not_raise_for_legacy_state(tmp_path) -> None:
     paths.registry_path.write_text("[]\n", encoding="utf-8")
 
     assert "legacy" in schema_status(paths)
+
+
+def test_supported_older_state_still_requires_migration(tmp_path) -> None:
+    paths = make_paths(tmp_path).ensure()
+    write_schema_version(paths, CURRENT_SCHEMA_VERSION - 1)
+
+    with pytest.raises(LairenError, match="requires migration"):
+        require_current_schema(paths)
+
+    assert "migration required" in schema_status(paths)

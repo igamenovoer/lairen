@@ -13,7 +13,7 @@ from lairen.manual import TOPIC_ORDER
 def test_manual_default_prints_overview() -> None:
     result = CliRunner().invoke(cli, ["manual"])
     assert result.exit_code == 0, result.output
-    assert "CORE COMMANDS" in result.output
+    assert "MODEL" in result.output
     assert "lairen manual all" in result.output
 
 

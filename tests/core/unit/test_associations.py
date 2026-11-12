@@ -6,7 +6,7 @@ from pathlib import Path
 
 from lairen.associations import available_accounts, build_associations
 from lairen.deployments import DeploymentLog
-from lairen.models import Account
+from lairen.models import Account, Auth, Holder
 
 
 def account(
@@ -14,17 +14,14 @@ def account(
     account_id: str,
     *,
     alias: str | None = None,
-    last_home: str | None = None,
-    last_at: str | None = None,
 ) -> Account:
     return Account(
         provider=provider,
         id=account_id,
         label=account_id,
-        source_home=f"/source/{account_id}",
         alias=alias,
-        last_deployed_at=last_at,
-        last_deployed_home=last_home,
+        auth=Auth(stored=True, source_home=f"/source/{account_id}"),
+        holder=Holder(home=f"/holder/{account_id}"),
     )
 
 
@@ -41,6 +38,7 @@ def deploy(
     entry: dict[str, object] = {
         "ts": stamp,
         "action": "deploy",
+        "mode": "copy",
         "provider": provider,
         "ref": ref,
         "home": str(home),

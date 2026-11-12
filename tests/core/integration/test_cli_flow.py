@@ -55,7 +55,7 @@ def write_kimi_home(path: Path) -> None:
     )
 
 
-def test_register_deploy_usage(tmp_path, monkeypatch) -> None:
+def test_account_add_deploy_usage(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LAIREN_HOME", str(tmp_path / "lairen"))
     codex_home = tmp_path / "codex-home"
     kimi_home = tmp_path / "kimi-home"
@@ -63,34 +63,40 @@ def test_register_deploy_usage(tmp_path, monkeypatch) -> None:
     write_kimi_home(kimi_home)
 
     runner = CliRunner()
-    result = runner.invoke(cli, ["register", "codex", "--home", str(codex_home)])
+    result = runner.invoke(
+        cli, ["account", "add", "--provider", "codex", "--home", str(codex_home)]
+    )
     assert result.exit_code == 0, result.output
-    result = runner.invoke(cli, ["register", "kimi", "--home", str(kimi_home)])
+    result = runner.invoke(
+        cli, ["account", "add", "--provider", "kimi", "--home", str(kimi_home)]
+    )
     assert result.exit_code == 0, result.output
 
-    result = runner.invoke(cli, ["list", "--json"])
+    result = runner.invoke(cli, ["account", "list", "--json"])
     assert result.exit_code == 0, result.output
     accounts = json.loads(result.output)
     refs = {account["ref"] for account in accounts}
     assert refs == {"codex/alice@example.com", "kimi/user-1--device-1"}
+    assert all(account["auth"]["stored"] for account in accounts)
+    assert all(account["holder"] for account in accounts)
 
     target_codex = tmp_path / "target-codex"
     target_kimi = tmp_path / "target-kimi"
     result = runner.invoke(
         cli,
-        ["deploy", "codex/alice@example.com", "--home", str(target_codex)],
+        ["deploy", "copy", "codex/alice@example.com", "--home", str(target_codex)],
     )
     assert result.exit_code == 0, result.output
     assert (target_codex / "auth.json").is_file()
 
     result = runner.invoke(
         cli,
-        ["deploy", "kimi/user-1--device-1", "--home", str(target_kimi)],
+        ["deploy", "copy", "kimi/user-1--device-1", "--home", str(target_kimi)],
     )
     assert result.exit_code == 0, result.output
     assert (target_kimi / "credentials" / "kimi-code.json").is_file()
 
-    result = runner.invoke(cli, ["usage", "--json"])
+    result = runner.invoke(cli, ["account", "usage", "--json"])
     assert result.exit_code == 0, result.output
     records = json.loads(result.output)
     by_ref = {record["ref"]: record for record in records}

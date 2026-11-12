@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lairen.deployments import DeploymentLog, project_root_for_home
+from lairen.deployments import project_root_for_home
 from lairen.errors import LairenError
 from lairen.paths import Paths
 from lairen.schema import (
@@ -31,9 +31,13 @@ class MigrationReport:
     fresh: bool = False
     dry_run: bool = False
     deploy_entries: int = 0
+    link_entries: int = 0
     project_filled: int = 0
     legacy_materialized: int = 0
+    auth_backfilled: int = 0
+    mode_filled: int = 0
     unattributed: list[tuple[str, str]] = field(default_factory=list)
+    holder_unset: list[tuple[str, str]] = field(default_factory=list)
     backup_path: Path | None = None
     changed: bool = False
 
@@ -73,9 +77,9 @@ def migrate_state(
         report = MigrationReport(
             from_version=version,
             to_version=CURRENT_SCHEMA_VERSION,
+            dry_run=dry_run,
         )
-        if mapping:
-            _backfill_current(paths, mapping, report, dry_run=dry_run, backup=backup)
+        _collect_current(paths, mapping, report, dry_run=dry_run, backup=backup)
         return report
 
     report = MigrationReport(
@@ -84,15 +88,14 @@ def migrate_state(
         dry_run=dry_run,
         changed=True,
     )
-    if version < 2:
-        _migrate_v1_to_v2(paths, mapping, report, dry_run=dry_run, backup=backup)
+    _migrate_to_v3(paths, mapping, report, dry_run=dry_run, backup=backup)
 
     if not dry_run:
         write_schema_version(paths, CURRENT_SCHEMA_VERSION)
     return report
 
 
-def _migrate_v1_to_v2(
+def _migrate_to_v3(
     paths: Paths,
     project_map: dict[str, str],
     report: MigrationReport,
@@ -101,74 +104,89 @@ def _migrate_v1_to_v2(
     backup: bool,
 ) -> None:
     registry = _load_registry(paths.registry_path)
+    credentials = _load_credentials(paths.credentials_path)
     entries = _load_log(paths.deployments_path)
-    log = DeploymentLog(paths.deployments_path)
 
     if backup and not dry_run:
         report.backup_path = _backup_state(paths)
 
-    _normalize_registry(registry)
-
+    normalized_registry: list[dict[str, Any]] = []
+    legacy_pointers: list[tuple[str, str, str | None, str | None]] = []
     for account in registry:
-        provider = str(account["provider"])
-        account_id = str(account["id"])
+        provider, account_id = _account_key(account)
         ref = f"{provider}/{account_id}"
+        source_home = account.get("source_home")
+        source = str(source_home) if source_home else None
+        stored = f"{provider}:{account_id}" in credentials
+        normalized_registry.append(
+            {
+                "provider": provider,
+                "id": account_id,
+                "label": account.get("label") or account_id,
+                "alias": account.get("alias"),
+                "created_at": account.get("created_at") or utc_now(),
+                "auth": {
+                    "stored": stored,
+                    "captured_at": None,
+                    "source_home": source,
+                },
+                "holder": None,
+                "extra": account.get("extra")
+                if isinstance(account.get("extra"), dict)
+                else {},
+            }
+        )
+        report.auth_backfilled += 1
+        if source:
+            report.holder_unset.append((ref, source))
         last_home = account.get("last_deployed_home")
-        if not last_home:
-            continue
-        related = log.related_refs(ref)
-        has_deploy = any(
-            entry.get("action") == "deploy"
+        last_at = account.get("last_deployed_at")
+        if last_home:
+            legacy_pointers.append(
+                (
+                    ref,
+                    str(last_home),
+                    str(last_at) if last_at else None,
+                    source,
+                )
+            )
+
+    for ref, raw_home, last_at, source in legacy_pointers:
+        related = _related_refs(entries, ref)
+        has_deployment = any(
+            entry.get("action") in ("deploy", "link")
             and str(entry.get("ref") or "") in related
             for entry in entries
         )
-        if has_deploy:
+        if has_deployment:
             continue
-        home = str(Path(str(last_home)).expanduser().resolve())
+        home = str(Path(raw_home).expanduser().resolve())
         entry: dict[str, Any] = {
-            "ts": account.get("last_deployed_at") or utc_now(),
+            "ts": last_at or utc_now(),
             "action": "deploy",
-            "provider": provider,
+            "mode": "copy",
+            "provider": ref.partition("/")[0],
             "ref": ref,
             "project": _project_for(home, project_map),
             "home": home,
             "migrated_from": "last_deployed_home",
         }
-        if account.get("alias"):
-            entry["alias"] = account["alias"]
-        if account.get("source_home"):
-            entry["source_home"] = account["source_home"]
+        if source:
+            entry["source_home"] = source
         entries.append(entry)
         report.legacy_materialized += 1
 
-    for entry in entries:
-        if entry.get("action") != "deploy":
-            continue
-        report.deploy_entries += 1
-        if entry.get("project") is not None:
-            continue
-        raw_home = entry.get("home")
-        if not raw_home:
-            entry["project"] = None
-            report.unattributed.append((str(entry.get("ref") or ""), ""))
-            continue
-        home = str(Path(str(raw_home)).expanduser().resolve())
-        project = _project_for(home, project_map)
-        entry["project"] = project
-        if project is None:
-            report.unattributed.append((str(entry.get("ref") or ""), home))
-        else:
-            report.project_filled += 1
+    _normalize_entries(entries, project_map, report)
 
     if dry_run:
         return
-    if registry or paths.registry_path.exists():
-        _write_registry(paths.registry_path, registry)
+    if normalized_registry or paths.registry_path.exists():
+        _write_registry(paths.registry_path, normalized_registry)
     if entries or paths.deployments_path.exists():
         _write_log(paths.deployments_path, entries)
 
 
-def _backfill_current(
+def _collect_current(
     paths: Paths,
     project_map: dict[str, str],
     report: MigrationReport,
@@ -176,31 +194,41 @@ def _backfill_current(
     dry_run: bool,
     backup: bool,
 ) -> None:
+    registry = _load_registry(paths.registry_path)
+    for account in registry:
+        auth = account.get("auth")
+        if not isinstance(auth, dict):
+            continue
+        source = auth.get("source_home")
+        if not source:
+            continue
+        provider, account_id = _account_key(account)
+        report.holder_unset.append((f"{provider}/{account_id}", str(source)))
+
     entries = _load_log(paths.deployments_path)
     changed = False
     for entry in entries:
-        if entry.get("action") != "deploy":
+        action = entry.get("action")
+        if action not in ("deploy", "link"):
             continue
-        report.deploy_entries += 1
+        if action == "deploy":
+            report.deploy_entries += 1
+        else:
+            report.link_entries += 1
+        if entry.get("project") is not None:
+            continue
         raw_home = entry.get("home")
-        if entry.get("project") is not None or not raw_home:
+        if not raw_home:
+            report.unattributed.append((str(entry.get("ref") or ""), ""))
             continue
         home = str(Path(str(raw_home)).expanduser().resolve())
         project = project_map.get(home)
         if project is None:
+            report.unattributed.append((str(entry.get("ref") or ""), home))
             continue
         entry["project"] = project
         report.project_filled += 1
         changed = True
-
-    for entry in entries:
-        if entry.get("action") != "deploy":
-            continue
-        if entry.get("project") is not None:
-            continue
-        raw_home = entry.get("home")
-        home = str(Path(str(raw_home)).expanduser().resolve()) if raw_home else ""
-        report.unattributed.append((str(entry.get("ref") or ""), home))
 
     if not changed:
         return
@@ -212,34 +240,71 @@ def _backfill_current(
     _write_log(paths.deployments_path, entries)
 
 
-def _normalize_registry(registry: list[dict[str, Any]]) -> None:
-    for account in registry:
-        provider = account.get("provider")
-        account_id = account.get("id")
-        if (
-            not isinstance(provider, str)
-            or not provider
-            or not isinstance(account_id, str)
-            or not account_id
-        ):
-            raise LairenError(
-                "registry entry is missing provider/id; "
-                "fix it manually or recreate the lairen state"
-            )
-        if not account.get("label"):
-            account["label"] = account_id
-        if "source_home" not in account:
-            account["source_home"] = ""
-        if "alias" not in account:
-            account["alias"] = None
-        if "created_at" not in account:
-            account["created_at"] = utc_now()
-        if "last_deployed_at" not in account:
-            account["last_deployed_at"] = None
-        if "last_deployed_home" not in account:
-            account["last_deployed_home"] = None
-        if not isinstance(account.get("extra"), dict):
-            account["extra"] = {}
+def _normalize_entries(
+    entries: list[dict[str, Any]],
+    project_map: dict[str, str],
+    report: MigrationReport,
+) -> None:
+    for entry in entries:
+        action = entry.get("action")
+        if action not in ("deploy", "link"):
+            continue
+        if action == "deploy":
+            report.deploy_entries += 1
+        else:
+            report.link_entries += 1
+        if "mode" not in entry or not entry.get("mode"):
+            entry["mode"] = "link" if action == "link" else "copy"
+            report.mode_filled += 1
+
+        raw_home = entry.get("home")
+        home = str(Path(str(raw_home)).expanduser().resolve()) if raw_home else ""
+        if entry.get("project") is None:
+            project = project_map.get(home) if home else None
+            if project is None and home:
+                project = _project_for(home, project_map)
+            entry["project"] = project
+            if project is not None:
+                report.project_filled += 1
+            else:
+                report.unattributed.append((str(entry.get("ref") or ""), home))
+
+
+def _account_key(account: dict[str, Any]) -> tuple[str, str]:
+    provider = account.get("provider")
+    account_id = account.get("id")
+    if (
+        not isinstance(provider, str)
+        or not provider
+        or not isinstance(account_id, str)
+        or not account_id
+    ):
+        raise LairenError(
+            "registry entry is missing provider/id; "
+            "fix it manually or recreate the lairen state"
+        )
+    return provider, account_id
+
+
+def _related_refs(entries: list[dict[str, Any]], ref: str) -> set[str]:
+    refs = {ref}
+    changed = True
+    while changed:
+        changed = False
+        for entry in entries:
+            if entry.get("action") != "update":
+                continue
+            current = str(entry.get("ref") or "")
+            previous = str(entry.get("previous_ref") or "")
+            if not current or not previous:
+                continue
+            if current in refs and previous not in refs:
+                refs.add(previous)
+                changed = True
+            elif previous in refs and current not in refs:
+                refs.add(current)
+                changed = True
+    return refs
 
 
 def _project_for(home: str, project_map: dict[str, str]) -> str | None:
@@ -287,6 +352,24 @@ def _load_registry(path: Path) -> list[dict[str, Any]]:
             )
         result.append(item)
     return result
+
+
+def _load_credentials(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LairenError(
+            f"cannot read credential store {path}: {exc}; "
+            "fix it manually or recreate the lairen state"
+        ) from exc
+    if not isinstance(data, dict):
+        raise LairenError(
+            f"credential store {path} is not a JSON object; "
+            "fix it manually or recreate the lairen state"
+        )
+    return {str(key): str(value) for key, value in data.items()}
 
 
 def _load_log(path: Path) -> list[dict[str, Any]]:

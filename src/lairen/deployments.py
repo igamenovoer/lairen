@@ -11,6 +11,7 @@ from lairen.models import Account
 from lairen.util import utc_now
 
 PROJECT_HOME_NAMES = (".codex", ".kimi-code", ".claude", ".commandcode", ".opencode")
+DEPLOYMENT_ACTIONS = ("deploy", "link")
 
 
 class _InferProject:
@@ -28,6 +29,11 @@ def project_root_for_home(home: str | Path) -> str | None:
     return None
 
 
+def is_deployment_entry(entry: Mapping[str, object]) -> bool:
+    """True for entries that materialize an account in a project home."""
+    return entry.get("action") in DEPLOYMENT_ACTIONS
+
+
 def record_event(
     log_path: Path,
     action: str,
@@ -37,6 +43,7 @@ def record_event(
     source_home: str | None = None,
     project: str | Path | None | _InferProject = _INFER_PROJECT,
     previous_ref: str | None = None,
+    mode: str | None = None,
 ) -> None:
     """Append one deployment-history entry, omitting empty fields."""
     home_value = str(Path(home).expanduser().resolve()) if home else None
@@ -51,6 +58,7 @@ def record_event(
     entry: dict[str, object] = {
         "ts": utc_now(),
         "action": action,
+        "mode": mode or ("link" if action == "link" else "copy"),
         "provider": account.provider,
         "ref": account.ref,
         "alias": account.alias,
@@ -100,11 +108,11 @@ class DeploymentLog:
         return result
 
     def leases_for(self, refs: Iterable[str]) -> list[dict[str, object]]:
-        """Newest deploy entry per target home for the given account refs."""
+        """Newest deployment entry per target home for the given account refs."""
         wanted = set(refs)
         latest: dict[str, dict[str, object]] = {}
         for entry in self.entries():
-            if entry.get("action") != "deploy":
+            if not is_deployment_entry(entry):
                 continue
             if str(entry.get("ref") or "") not in wanted:
                 continue

@@ -11,498 +11,312 @@ Global options:
 | `--version` | Print `lairen, version <version>` and exit. |
 | `-h`, `--help` | Show help for the group or a command. |
 
-Commands:
+Top-level commands:
 
 | Command | Purpose |
 |---|---|
-| [`register`](#register) | Save the live login from a provider home. |
-| [`update`](#update) | Replace a saved credential from a new home. |
-| [`list`](#list) | List saved accounts. |
-| [`associations`](#associations) | List account/project associations from the ledger. |
-| [`available`](#available) | List accounts with no active deployment. |
-| [`show`](#show) | Show one account and its local usage metadata. |
-| [`deploy`](#deploy) | Write a saved credential into a target home. |
-| [`sync`](#sync) | Pull refreshed credentials from known homes into the store. |
-| [`scan`](#scan) | Discover Codex and Kimi credential homes. |
-| [`status`](#status) | Show which accounts a project directory is using. |
-| [`usage`](#usage) | Show expiry and usage statistics. |
-| [`remove`](#remove) | Remove an account and its stored credential. |
-| [`alias`](#alias) | Set, clear, or list stable account aliases. |
-| [`providers`](#providers) | Show provider defaults and adapter status. |
-| [`doctor`](#doctor) | Show resolved paths, counts, and provider homes. |
-| [`migrate`](#migrate) | Migrate lairen state to the current schema version. |
-| [`manual`](#manual) | Agent-oriented usage manual with examples. |
+| [`account`](#account) | Account identity, stored auth, holder home, aliases, usage |
+| [`deploy`](#deploy) | Copy, link, env, list, and unlink deployments |
+| [`status`](#status) | Inspect the project directory in front of you |
+| [`providers`](#providers) | Provider defaults and adapter status |
+| [`doctor`](#doctor) | Paths, counts, schema, and holder health |
+| [`migrate`](#migrate) | Migrate state to schema v3 |
+| [`manual`](#manual) | Agent-oriented usage manual |
 
 Refs are `provider/id`, a unique alias, a unique bare id, or a unique label.
 See [Identities and refs](../concepts/identities.md).
 
-## register
+## account
 
 ```text
-lairen register [OPTIONS] {claude|codex|commandcode|cursor|kimi|opencode}
+lairen account [COMMAND]
 ```
 
-Reads the live login from a provider home and saves its metadata and credential
-blob. The source home is not modified.
+An account is one credential identity accepted by a provider CLI. It has at
+most one holder home. It may also keep a credential copy inside lairen.
+
+### account add
+
+```text
+lairen account add --provider P --home PATH
+                   [--alias NAME] [--label TEXT]
+                   [--holder-only | --no-holder] [--json]
+```
+
+Reads a live provider home, creates or refreshes the account, and stores auth
+by default. The same home becomes the holder unless `--no-holder` is given.
 
 | Option | Meaning |
 |---|---|
-| `--home PATH` | Provider home to read. Falls back to the provider environment variable, then the default home. |
+| `--provider P` | Provider adapter. Required. |
+| `--home PATH` | Existing, pre-logged-in provider home. Required. |
+| `--alias NAME` | Stable short handle. |
 | `--label TEXT` | Override the display label. |
-| `--alias TEXT` | Set a stable short handle for the account. |
+| `--holder-only` | Record the holder without copying auth into lairen. |
+| `--no-holder` | Store auth without recording a holder. |
+| `--json` | Emit the full account payload. |
+
+`--holder-only` and `--no-holder` are mutually exclusive. Re-adding an account
+preserves an existing alias and custom label unless overridden.
 
 ```bash
-lairen register codex --home ~/code/project-a/.codex
-lairen register kimi --home ~/kimi-homes/kimi-1 --label "kimi-lease-1" --alias kimi-1
+lairen account add --provider codex --home ~/codex-holders/codex-aj --alias aj
+lairen account add --provider codex --home ~/tmp/codex --holder-only
 ```
 
-Output:
+### account list
 
 ```text
-registered <ref>  label=<label>  source=<home>[  alias=<alias>]
+lairen account list [--provider P ...] [--available]
+                    [--with-holder] [--stale-holders] [--json]
 ```
 
-Registering an existing `provider/id` replaces its metadata and blob but keeps
-an existing alias unless `--alias` is given.
-
-For experimental providers, a warning is printed to stderr.
-
-## update
-
-```text
-lairen update [OPTIONS] REF
-```
-
-Reads a new credential from `--home` and replaces the stored credential for
-`REF`. The source home is not modified.
+Prints `REF`, `ALIAS`, `LABEL`, `AUTH`, `HOLDER`, `HOLDER STATE`, and
+`DEPLOYED`.
 
 | Option | Meaning |
 |---|---|
-| `--home PATH` | Provider home to read the new credential from. **Required.** |
-| `--label TEXT` | Override the display label. |
-
-```bash
-lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
-lairen update codex/alice@example.com --home ~/code/project-a/.codex
-```
-
-Output:
-
-```text
-updated <ref>  source=<home>[  alias=<alias>]
-updated <old-ref> -> <new-ref>  source=<home>[  alias=<alias>]
-```
-
-Behavior:
-
-- The account's id and `source_home` follow the new credential.
-- The alias is always preserved. A provider-derived label follows a changed
-  identity; a custom label is preserved unless `--label` overrides it.
-- If the new identity already belongs to another account, lairen refuses to
-  merge and names the existing account.
-- When the id changes, the old credential blob is removed, the ref changes, and
-  the alias continues to resolve to the updated account.
-- `created_at` and deployment metadata are preserved. Deploy the account again
-  if existing target homes need the new credential.
-
-## list
-
-```text
-lairen list [--json]
-```
-
-Prints saved accounts, sorted by provider and id:
-
-```text
-REF  ALIAS  LABEL  SOURCE  LAST DEPLOYED
-```
-
-| Option | Meaning |
-|---|---|
-| `--json` | Emit the account records as JSON. |
-
-JSON output is a list of account objects with an added `ref` field:
-
-```json
-[
-  {
-    "ref": "codex/alice@example.com",
-    "provider": "codex",
-    "id": "alice@example.com",
-    "label": "alice@example.com",
-    "source_home": "/home/alice/code/project-a/.codex",
-    "alias": "work",
-    "created_at": "2026-10-26T12:00:00+00:00",
-    "last_deployed_at": null,
-    "last_deployed_home": null,
-    "extra": {}
-  }
-]
-```
-
-With no accounts, lairen prints a hint instead of a table:
-
-```text
-no accounts; run `lairen register <provider> --home <path>`
-```
-
-## associations
-
-```text
-lairen associations [--group-by account|project] [--account REF]...
-                    [--project DIR]... [--provider P]... [--active-only] [--json]
-```
-
-Derives account/project edges from the deployment ledger. It does not scan the
-filesystem. A project may hold several accounts and several homes for the same
-provider, including custom home names such as `.kimi-code-2`.
-
-| Option | Meaning |
-|---|---|
-| `--group-by account\|project` | Group output by account (default) or project. |
-| `--account REF` | Limit to one account. Repeatable. |
-| `--project DIR` | Limit to one project directory. Repeatable. |
 | `--provider P` | Limit to one provider. Repeatable. |
-| `--active-only` | Hide overwritten associations. |
-| `--json` | Emit a flat list of association records. |
+| `--available` | Only accounts with no active deployment. |
+| `--with-holder` | Only accounts with a holder home. |
+| `--stale-holders` | Only accounts whose holder is possibly stale. |
+| `--json` | Emit full account payloads with deployments. |
 
-The newest `deploy` entry for each `(provider, home)` pair is `active`; every
-older entry for the same pair is `overwritten`, even when it belongs to another
-account. An `update` that changes an account's identity also marks earlier
-deploys of that account as overwritten, because those homes still hold the old
-identity. Homes with no recorded project appear under `(unattributed)`.
+`--available` replaces the old top-level `available` command.
 
-Legacy `last_deployed_home` pointers are not read here; run
-[`lairen migrate`](#migrate) to materialize them as deploy entries.
-
-```bash
-lairen associations --group-by project
-lairen associations --group-by account --account kimi-6240
-```
-
-JSON record:
-
-```json
-{
-  "provider": "kimi",
-  "ref": "kimi/user-1--device-1",
-  "alias": "kimi-a",
-  "label": "user-1",
-  "project": "/home/me/code/project-a",
-  "home": "/home/me/code/project-a/.kimi-code-2",
-  "deployed_at": "2026-11-09T03:55:14+00:00",
-  "state": "active"
-}
-```
-
-## available
+### account show
 
 ```text
-lairen available [--provider P]... [--json]
+lairen account show REF [--json]
 ```
 
-Lists registered accounts with no active association. An account with only
-overwritten assignments is available. The table shows the newest inactive
-assignment so the result is auditable.
+Shows identity, alias, label, stored auth metadata, holder state, deployments,
+and live holder usage. JSON output includes nested `auth`, `holder`, and
+`deployments` objects.
 
-```bash
-lairen available
-lairen available --provider kimi --json
-```
-
-JSON record:
-
-```json
-{
-  "ref": "kimi/user-2--device-2",
-  "provider": "kimi",
-  "alias": null,
-  "label": "user-2",
-  "last_assignment": {
-    "project": "/home/me/code/project-b",
-    "home": "/home/me/code/project-b/.kimi-code",
-    "deployed_at": "2026-11-01T10:00:00+00:00",
-    "state": "overwritten"
-  }
-}
-```
-
-`last_assignment` is `null` when the account has never been deployed.
-
-## show
+### account update
 
 ```text
-lairen show REF
+lairen account update REF --home PATH [--label TEXT] [--keep-home] [--json]
 ```
 
-Prints one JSON object with two keys: `account` (the registry record) and
-`usage` (local token metadata). See
-[Track usage and expiry](../guides/usage.md#show-one-account).
+Reads a new credential from `--home`, replaces stored auth, and sets the new
+home as the holder. The identity may change; the ref follows it and the alias
+survives.
 
-Exits with an error when the ref is unknown, ambiguous, or has no stored blob.
+| Option | Meaning |
+|---|---|
+| `--home PATH` | Provider home with the new credential. Required. |
+| `--label TEXT` | Override the display label. |
+| `--keep-home` | Keep the existing holder. Rejected when the identity changes. |
+| `--json` | Emit the updated account payload. |
+
+### account sync
+
+```text
+lairen account sync [REF ...] [--home PATH ...] [--holder-only]
+                    [--dry-run] [--strict] [--json]
+```
+
+Pulls the freshest same-identity credential from the holder and known deployed
+homes into the store. `sync` never changes the holder.
+
+| Option | Meaning |
+|---|---|
+| `--home PATH` | Use only these homes. Requires exactly one REF. Repeatable. |
+| `--holder-only` | Read only the account holder. Cannot combine with `--home`. |
+| `--dry-run` | Report what would change without writing. |
+| `--strict` | Exit 1 when drift remains or a source cannot be used. |
+| `--json` | Emit sync results. |
+
+When the holder is read and its credential is current, `sync` clears a
+`possibly-stale` mark.
+
+### account set-home
+
+```text
+lairen account set-home REF --home PATH [--sync] [--json]
+```
+
+Attaches or replaces the holder. The home must hold the same identity; a
+different identity is rejected with a pointer to `account update`.
+
+`--sync` also captures auth from the new home. `set-home` clears a stale mark.
+
+### account clear-home
+
+```text
+lairen account clear-home REF [--json]
+```
+
+Forgets the holder pointer. Stored auth and the home itself are untouched.
+
+### account alias
+
+```text
+lairen account alias [REF] [NAME] [--clear] [--json]
+```
+
+Sets, clears, or lists aliases. With no arguments, lists non-empty aliases.
+`REF NAME` sets an alias; `REF --clear` removes it; `REF` prints the current
+alias.
+
+### account usage
+
+```text
+lairen account usage [REF ...] [--json]
+```
+
+Shows access expiry, remaining time, and holder state from stored auth.
+`account stats` is an alias.
+
+### account scan
+
+```text
+lairen account scan DIRECTORY [--depth N] [--provider P]
+                    [--add] [--holder-only] [--json]
+```
+
+Discovers Codex and Kimi homes. Depth `0` checks only the root; depth `1`
+(the default) also checks immediate children.
+
+| Option | Meaning |
+|---|---|
+| `--depth N` | Directory levels below the root. |
+| `--provider P` | Limit discovery to `codex` or `kimi`. Repeatable. |
+| `--add` | Create accounts for discovered homes. |
+| `--holder-only` | With `--add`, record holders without storing auth. |
+| `--json` | Emit scan hits. |
+
+With `--add`, duplicate copies of one identity keep the newest credential.
+
+### account remove
+
+```text
+lairen account remove REF --yes [--json]
+```
+
+Deletes the account record and stored auth. Holder homes, project symlinks,
+and snapshots remain on disk. Active links are reported as warnings.
 
 ## deploy
 
 ```text
-lairen deploy [OPTIONS] REF
+lairen deploy [COMMAND]
 ```
 
-Writes a saved credential into a target provider home.
+Deployment modes:
 
-| Option | Meaning |
+| Mode | Meaning |
 |---|---|
-| `--project PATH` | Project root for attribution and relative `--home` resolution. Defaults to the current directory. |
-| `--home PATH` | Target provider home. Absolute, or relative to `--project`. Omit to use `<project>/<provider native name>`. |
-| `--no-backup` | Skip the pre-deploy snapshot. |
-| `--refresh` | Sync refreshed tokens from known homes and the target before writing. |
-| `--force` | Overwrite even when the target holds a newer credential. |
+| `copy` | Write stored auth into a project home. |
+| `link` | Symlink a project home to the account holder. |
+| `env` | Print an export that points the shell at the holder. |
 
-Native project home names used when `--home` is omitted:
-
-| Provider | Home under the project |
-|---|---|
-| `kimi` | `.kimi-code` |
-| `codex` | `.codex` |
-| `claude` | `.claude` |
-| `commandcode` | `.commandcode` |
-| `opencode` | `.opencode` |
-| `cursor` | none; `--home` is required |
-
-```bash
-cd ~/code/project-c
-lairen deploy codex/alice@example.com
-lairen deploy kimi-6240 --home .kimi-code-2
-lairen deploy work --project ~/code/project-c --home .codex --refresh
-```
-
-When `--home` is omitted, lairen prints the resolved target before writing. A
-relative `--home` resolves under `--project`, or under the current directory
-when `--project` is omitted. An absolute `--home` is used as-is; the current
-directory is recorded as the project only when the home is inside it.
-
-Updates `last_deployed_at` and `last_deployed_home` in the registry, and writes
-`project`, `home`, and the account ref into the deployment ledger. See
-[Deploy credentials](../guides/deploying.md) for target rules and merge
-behavior.
-
-Output:
+### deploy copy
 
 ```text
-deployed <ref> -> <written credential path>
-snapshot: <snapshot path>        # only when a target existed and backups are on
+lairen deploy copy REF [--project P] [--home PATH]
+                   [--sync] [--force] [--no-backup]
 ```
 
-Updates `last_deployed_at` and `last_deployed_home` in the registry. See
-[Deploy credentials](../guides/deploying.md) for target rules and merge
-behavior.
+Requires stored auth. If the target already exists, lairen snapshots it and
+refuses to overwrite a newer credential for the same or another account unless
+`--force` is given.
 
-`deploy` copies the stored blob. If another home has used the account and
-refreshed its tokens, run `lairen sync REF` first or pass `--refresh`; otherwise
-the stale stored copy is what gets written.
+- `--sync` first runs `account sync` for the account.
+- Omitting `--home` uses `<project>/<provider project home>`.
+- A relative `--home` resolves under `--project` or the current directory.
+- Cursor has no project home name; pass `--home`.
 
-Before writing, `deploy` inspects the existing target. If the target holds a
-credential for an account in the registry that is newer than the stored copy,
-deploy refuses and prints the account, the reason, and the sync command that
-would capture it. `--force` overrides the refusal; the pre-deploy snapshot still
-protects the old file. A target holding an unregistered credential only prints
-a warning.
+If the account has a holder and the target is not the holder, the holder is
+marked `possibly-stale` after a successful copy. The copy still succeeds. If
+the target is the holder itself, the stale mark is cleared.
 
-## sync
+### deploy link
 
 ```text
-lairen sync [REF ...] [--home PATH ...] [--dry-run] [--strict]
+lairen deploy link REF [--project P] [--home PATH] [--force]
 ```
 
-Reads live credentials from homes that are known to hold the account and copies
-the freshest same-identity blob back into the store. It never writes a provider
-home.
+Requires a holder home. Creates `<project>/<provider project home>` as a
+symlink to the holder.
 
-Candidate homes come from the deployment log and the account's `source_home`.
-With `--home`, only the given homes are read and exactly one `REF` is required.
+- A symlink already pointing at the holder is a no-op.
+- A symlink to another target is replaced only with `--force`.
+- A real directory or file is never replaced. Move it aside first.
+- A stale holder produces a warning on stderr but the link is created.
 
-| Option | Meaning |
-|---|---|
-| `--home PATH` | Provider home to read. Repeatable; restricts the sync to these homes. |
-| `--dry-run` | Report what would change without writing. |
-| `--strict` | Exit `1` when a drift remains or a source cannot be used. |
-
-```bash
-lairen sync
-lairen sync kimi-6240-1 --dry-run
-lairen sync kimi-6240-1 --home ~/code/project-a/.kimi-code
-```
-
-Freshness is compared by refresh-token expiry, then access-token expiry, then
-file mtime. A candidate is only written when it is strictly fresher; the alias,
-label, and `source_home` are preserved. A home whose credential now belongs to
-a different identity is reported and must be rebound explicitly with
-[`update`](#update). Each applied sync appends a `sync` entry to the deployment
-log.
-
-## scan
+### deploy env
 
 ```text
-lairen scan [OPTIONS] DIRECTORY
+lairen deploy env REF [--shell auto|sh|bash|zsh|fish|csh|tcsh|powershell|pwsh|nu]
 ```
 
-Walks `DIRECTORY` and reports Codex and Kimi credential homes.
-
-| Option | Meaning |
-|---|---|
-| `--depth INTEGER` | Directory levels below the root to inspect. Default `1`; must be `>= 0`. |
-| `--provider [codex\|kimi]` | Restrict to one provider. Repeatable. |
-| `--register` | Save discovered accounts, one per account id, keeping the newest copy. |
-| `--json` | Emit findings as JSON. Ignored with `--register`. |
+Prints one export command on stdout. Warnings go to stderr.
 
 ```bash
-lairen scan ~/code --depth 2
-lairen scan ~/kimi-homes --provider kimi
-lairen scan ~/code --depth 2 --register
+eval "$(lairen deploy env aj)"
 ```
 
-Table columns are `PROVIDER`, `REF`, `HOME`, and `DEPTH`. JSON fields are
-`provider`, `ref`, `label`, `home`, `credential`, and `depth`. See
-[Scan for accounts](../guides/scanning.md) for patterns and duplicate handling.
+`auto` detects from `$SHELL` and defaults to POSIX `sh`. Providers without an
+environment variable (Cursor) are rejected with a pointer to `deploy link`.
+
+### deploy list
+
+```text
+lairen deploy list [--account REF ...] [--project P ...] [--provider P ...]
+                   [--mode copy|link ...] [--group-by account|project]
+                   [--active-only] [--json]
+```
+
+Lists copy and link deployments from the ledger. The newest deployment for a
+`(provider, home)` pair is `active`; older entries are `overwritten`.
+Identity-changing updates also overwrite earlier deployments.
+
+JSON records include `mode` and `source_home`. `deploy list` replaces the old
+top-level `associations` command.
+
+### deploy unlink
+
+```text
+lairen deploy unlink REF [--project P] [--home PATH] --yes [--json]
+```
+
+Removes a project symlink only when it points at the account's holder. It
+refuses real directories and symlinks to other targets.
 
 ## status
 
 ```text
-lairen status [DIRECTORY] [--provider codex|kimi] [--json] [--strict]
+lairen status [DIRECTORY] [--provider codex|kimi ...] [--json] [--strict]
 ```
 
-Shows which accounts a project directory is using. `DIRECTORY` defaults to the
-current directory. lairen reads the project's live credentials rather than the
-registry, so manually copied credentials appear too.
+Reads the project's live provider homes and reports:
 
-Project homes:
+- account ref, alias, and label
+- source: `copy`, `link`, or shell binding
+- auth state: `current`, `unregistered`, `invalid`, `drifted`, `missing-auth`
+  (`drifted` is informational for a `link` source, where the holder is live)
+- holder state: `ok`, `possibly-stale`, `missing`, `no-login`, `none`
+- access expiry and other projects from the deployment ledger
 
-| Provider | Home | Credential |
-|---|---|---|
-| `codex` | `<project>/.codex` | `auth.json` |
-| `kimi` | `<project>/.kimi-code` | `credentials/*.json` |
-
-Passing a provider home itself, such as `~/.kimi-code`, inspects that home.
-
-| Option | Meaning |
-|---|---|
-| `--provider [codex\|kimi]` | Limit the report to one provider. Repeatable. |
-| `--json` | Emit the report as JSON. |
-| `--strict` | Exit `1` when a credential is unregistered, invalid, drifted, or has no stored blob. |
-
-```bash
-lairen status
-lairen status ~/code/project-a
-lairen status ~/code/project-a --json
-lairen status ~/code/project-a --strict
-```
-
-States:
-
-| State | Meaning |
-|---|---|
-| `current` | Registered and the project credential matches the stored blob. |
-| `drifted` | Registered identity, but the project blob differs from the store. |
-| `unregistered` | Valid credential with no registry record. |
-| `invalid` | Unreadable or unparseable credential. |
-| `missing-store-blob` | Registry record exists, but its stored blob is missing. |
-| `no-login` | The project home exists but contains no credential. |
-
-The `OTHER PROJECTS` column comes from the append-only deployment log and
-excludes the inspected home. Each target is checked against its current
-credential, so a target that now holds a different account is marked
-`(overwritten)`. The JSON `leases` entries carry `live: true|false|null`;
-`null` means no check was possible.
-
-JSON shape:
-
-```json
-{
-  "project": "/home/me/code/project-a",
-  "ok": true,
-  "accounts": [
-    {
-      "provider": "codex",
-      "ref": "codex/alice@example.com",
-      "alias": "work",
-      "label": "alice@example.com",
-      "home": "/home/me/code/project-a/.codex",
-      "credential": "/home/me/code/project-a/.codex/auth.json",
-      "state": "current",
-      "expires_at": "2026-11-25T12:00:00+00:00",
-      "expires_in_seconds": 2592000,
-      "registry_expires_at": "2026-11-25T12:00:00+00:00",
-      "registry_expires_in_seconds": 2592000,
-      "leases": [],
-      "error": null
-    }
-  ],
-  "warnings": []
-}
-```
-
-## usage
+`--strict` exits 1 when a problem remains. Problems include auth problems and
+holder problems. The error names each account, the reason, and the fix:
 
 ```text
-lairen usage [OPTIONS] [REFS]...
-lairen stats [OPTIONS] [REFS]...
+strict status failed: 1 problem(s)
+  codex/alice@example.com: holder /home/me/codex-holders/codex-aj is possibly stale
+    (since 2026-11-12T04:20:00+00:00: deploy copy -> /home/me/code/project-b/.codex)
+    fix: lairen account sync codex/alice@example.com --home /home/me/codex-holders/codex-aj
 ```
 
-Prints one row per account with `REF`, `ACCESS EXPIRES (UTC)`, `REMAINING`, and
-`LAST DEPLOYED`.
-
-| Option | Meaning |
-|---|---|
-| `--json` | Emit usage records as JSON. |
-
-With no refs, all accounts are included. `stats` is an alias registered for the
-same command.
-
-## remove
+A shell binding is reported when the current environment's provider home
+variable points at a registered holder:
 
 ```text
-lairen remove [OPTIONS] REF
+shell: CODEX_HOME=/home/me/codex-holders/codex-aj  account=codex/alice@example.com  holder_state=ok
 ```
-
-Deletes the registry record and the stored credential blob. Deployed homes,
-snapshots, and source homes are not touched.
-
-| Option | Meaning |
-|---|---|
-| `--yes` | Confirm removal. Without it, the command refuses to proceed. |
-
-```bash
-lairen remove codex/alice@example.com --yes
-```
-
-## alias
-
-```text
-lairen alias [REF] [NAME] [--clear] [--json]
-```
-
-Manages stable short handles for accounts:
-
-```bash
-lairen alias 'kimi/u_123--d_456' kimi-1   # set or rename
-lairen alias kimi-1                       # show one alias
-lairen alias --json                       # list every alias
-lairen alias kimi-1 --clear               # remove
-```
-
-| Argument or option | Meaning |
-|---|---|
-| `REF` | Account to inspect or update. Omit to list all aliases. |
-| `NAME` | New alias. Omit with `REF` to show the current alias. |
-| `--clear` | Remove the alias from `REF`. |
-| `--json` | Emit `[{"ref", "alias"}]` when listing, or `{"ref", "alias"}` when showing one. |
-
-Alias rules:
-
-- Must start with a letter or digit; may contain letters, digits, `.`, `_`,
-  `+`, `@`, and `-`; at most 64 characters; case-sensitive.
-- Must be unique across aliases, account ids, and labels.
-- Resolves before bare ids and labels. `provider/id` remains exact.
-- Survives re-registration unless `register --alias` changes it.
 
 ## providers
 
@@ -510,16 +324,8 @@ Alias rules:
 lairen providers
 ```
 
-Prints a table of adapters:
-
-```text
-PROVIDER  TESTED  ENV  DEFAULT HOME  CREDENTIAL  NOTES
-```
-
-`TESTED` is `yes` only for adapters covered by live-credential tests. `ENV` is
-the fallback environment variable, and `CREDENTIAL` is the path lairen reads
-and writes relative to the provider home. See the
-[provider reference](providers.md).
+Prints provider name, tested status, environment variable, default home,
+project home name, credential relative path, and notes.
 
 ## doctor
 
@@ -527,115 +333,72 @@ and writes relative to the provider home. See the
 lairen doctor
 ```
 
-Prints:
-
-```text
-config dir : <path>
-data dir   : <path>
-state dir  : <path>
-schema     : <version or status>
-accounts   : <count>
-credentials: <count>
-[<provider>] tested=<yes|no> home=<path> login=<yes|no>
-```
-
-`login=yes` means the provider's credential file exists in the resolved home.
-`schema` reports the state version without failing on legacy state.
-`doctor` does not create directories or modify files.
+Prints resolved config/data/state paths, schema status, account count, stored
+auth count, holder count, stale holder count, and the login status of each
+provider's default home. `doctor` works without migrating old state so it can
+diagnose it.
 
 ## migrate
 
 ```text
-lairen migrate [--dry-run] [--project HOME=PROJECT]... [--no-backup]
+lairen migrate [--dry-run] [--project HOME=PROJECT ...] [--no-backup]
 ```
 
-Migrates lairen's on-disk state to the current schema version. There is no
-automatic migration: commands refuse to read unmigrated state and tell you to
-run this command.
+Migrates state to schema v3. Commands refuse v1/v2 state until this completes.
 
-| Option | Meaning |
-|---|---|
-| `--dry-run` | Report what would change without writing. |
-| `--project HOME=PROJECT` | Attribute a custom-named home to a project. Repeatable. |
-| `--no-backup` | Skip the pre-migration snapshot. |
+The migration:
 
-What the current migration does:
+- converts each account to `auth` + `holder: null`
+- keeps the old `source_home` as `auth.source_home`
+- moves legacy `last_deployed_*` bookkeeping into the deployment log
+- adds `mode=copy` to existing deployment entries
+- writes the v3 marker
+- reports accounts whose old `source_home` is available
 
-- Adds `data/schema.json` with the current version.
-- Normalizes registry records to the current field set.
-- Fills `project` on deploy entries from standard home names.
-- Materializes legacy `last_deployed_home` pointers as deploy entries.
-- Reports deploy entries that remain unattributed.
-
-A backup of the registry, deployment log, and existing schema marker is written
-under `state/migrations/<UTC timestamp>/` unless `--no-backup` is given.
-
-The migration is idempotent. Re-running it with `--project` on an already
-current state applies late mappings to deploy entries whose `project` is still
-null; it does not change the schema version.
+It never adopts a holder automatically. Attach one explicitly:
 
 ```bash
-lairen migrate --dry-run
-lairen migrate --project /home/me/code/project/.kimi-alt=/home/me/code/project
+lairen account set-home REF --home PATH
 ```
 
-Supported versions:
-
-- No schema marker with existing state is legacy version 1 and is supported.
-- Versions below the minimum supported version are rejected; migrate them
-  manually or recreate the lairen state.
-- Versions newer than this lairen are rejected; upgrade lairen instead.
-
-A completely fresh state is initialized at the current version, either by the
-first command that needs state or by `lairen migrate`.
+`--project HOME=PROJECT` maps a custom home to a project. Re-running with
+`--project` on v3 applies late mappings to unattributed deployment entries.
 
 ## manual
 
 ```text
-lairen manual [COMMAND]
+lairen manual [TOPIC] [--json]
 ```
 
-An agent-oriented manual with concise topics and copyable examples. Running
-`lairen manual` without a command prints the overview.
-
-| Topic | Contents |
-|---|---|
-| `overview` | Mental model, core commands, and rules. |
-| `commands` | Every command with synopsis and examples. |
-| `workflows` | Task sequences for discovery, moves, swaps, and cleanup. |
-| `providers` | Provider homes, credential paths, and identity rules. |
-| `storage` | Registry, credential store, and snapshot layout. |
-| `json` | Machine-readable output shapes and exit codes. |
-| `safety` | Secret handling, rotation, and concurrency warnings. |
-| `all` | Every topic in one document. |
-
-Every topic accepts `--json`:
+Topics: `overview`, `commands`, `workflows`, `providers`, `storage`, `json`,
+`safety`, and `all`.
 
 ```bash
-lairen manual workflows
-lairen manual providers --json
+lairen manual all
 lairen manual all --json
 ```
-
-A topic's JSON output is `{"topic", "title", "text"}`. `all --json` adds the
-installed version and nests the topics:
-
-```json
-{
-  "version": "<installed version>",
-  "topics": [{"topic": "overview", "title": "Overview", "text": "..."}]
-}
-```
-
-Agents can load the whole guide with `lairen manual all` or parse the
-structured form with `lairen manual all --json`.
 
 ## Exit codes
 
 | Code | Meaning |
-|---:|---|
+|---|---|
 | `0` | Success. |
-| `1` | A lairen error: unknown or ambiguous ref, missing credential, refused removal, I/O failure, invalid registry or store JSON. The message is printed without a traceback. |
-| `2` | Click usage error: unknown command, unknown option, missing argument, or an invalid choice or integer. |
+| `1` | A lairen domain error, failed strict check, or refused operation. |
+| `2` | Click usage error. |
 
-lairen writes errors to stderr and normal output to stdout.
+## JSON output
+
+Commands with JSON output:
+
+```text
+lairen account list --json
+lairen account show REF --json
+lairen account sync --json
+lairen account scan DIR --json
+lairen deploy list --json
+lairen deploy unlink REF --json
+lairen status DIR --json
+lairen manual all --json
+```
+
+See `lairen manual json` for the current shapes.

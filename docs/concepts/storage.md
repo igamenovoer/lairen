@@ -1,7 +1,7 @@
 # Storage and paths
 
-lairen keeps metadata, credentials, and pre-deploy snapshots in three
-directories. It follows the XDG base-directory convention and creates
+lairen keeps account metadata, credential blobs, and pre-deploy snapshots in
+three directories. It follows the XDG base-directory convention and creates
 directories with mode `0700` and files with mode `0600`.
 
 ## Default layout
@@ -26,7 +26,8 @@ Set `LAIREN_HOME` to keep everything under one root, which is useful for tests
 and disposable environments:
 
 ```bash
-LAIREN_HOME=/tmp/lairen-state lairen register codex --home ./project/.codex
+LAIREN_HOME=/tmp/lairen-state lairen account add \
+  --provider codex --home ./project/.codex
 ```
 
 The layout becomes:
@@ -42,11 +43,30 @@ The layout becomes:
 ```
 
 `LAIREN_HOME` is a storage override, not a provider selector. It does not
-change which provider home `register` reads or where `deploy` writes.
+change which provider home `account add` reads or where `deploy copy` writes.
+
+## Schema version
+
+`schema.json` records the on-disk state version. lairen 2.x uses **v3**.
+
+```json
+{"version": 3}
+```
+
+State without a marker is legacy. State at v1 or v2 must be migrated:
+
+```bash
+lairen migrate --dry-run
+lairen migrate
+```
+
+Commands refuse older state with a `lairen migrate` hint. `doctor` reports the
+schema without failing so it can be used to diagnose old state.
 
 ## Registry format
 
-`registry.json` is a JSON list of account records:
+`registry.json` is a JSON list of account records. The account is the aggregate
+root: identity, auth metadata, and at most one holder.
 
 ```json
 [
@@ -54,11 +74,22 @@ change which provider home `register` reads or where `deploy` writes.
     "provider": "codex",
     "id": "alice@example.com",
     "label": "alice@example.com",
-    "source_home": "/home/alice/code/project-a/.codex",
-    "alias": "work",
-    "created_at": "2026-10-26T12:00:00+00:00",
-    "last_deployed_at": "2026-10-26T12:05:00+00:00",
-    "last_deployed_home": "/home/alice/code/project-b/.codex",
+    "alias": "aj",
+    "created_at": "2026-11-10T09:00:00+00:00",
+    "auth": {
+      "stored": true,
+      "captured_at": "2026-11-12T04:00:00+00:00",
+      "source_home": "/home/alice/codex-holders/codex-aj"
+    },
+    "holder": {
+      "home": "/home/alice/codex-holders/codex-aj",
+      "recorded_at": "2026-11-10T09:00:00+00:00",
+      "verified_at": "2026-11-12T04:00:00+00:00",
+      "stale": {
+        "since": "2026-11-12T04:20:00+00:00",
+        "reason": "deploy copy -> /home/alice/code/project-b/.codex"
+      }
+    },
     "extra": {
       "email": "alice@example.com",
       "account_id": "acct_123",
@@ -68,13 +99,28 @@ change which provider home `register` reads or where `deploy` writes.
 ]
 ```
 
-`alias` is optional and holds the user-chosen short handle. `extra` is
-provider-specific and never contains access or refresh tokens. It can contain
+Fields:
+
+| Field | Meaning |
+|---|---|
+| `auth` | Metadata for the credential copy. `null` when absent. |
+| `auth.stored` | Whether lairen recorded a credential copy. The blob itself lives in `credentials.json`. |
+| `auth.captured_at` | When the stored copy was last captured. |
+| `auth.source_home` | Home the stored copy came from. Provenance only. |
+| `holder` | At most one live home, or `null`. |
+| `holder.stale` | `null` or `{since, reason}`. Advisory; never blocks link/env. |
+| `alias` | Optional stable short handle. |
+| `extra` | Provider-specific non-secret identity metadata. |
+
+`alias` is optional and holds the user-chosen short handle. `extra` can contain
 an email address, account identifiers, or a device id, so treat the registry as
 private even though it holds no secrets.
 
 Writes go through a temporary file, `fsync`, and `os.replace`, so a crash does
 not leave a half-written registry.
+
+A holder is a property of the account. lairen 2.x has no separate
+`holders.json`.
 
 ## Credential store format
 
@@ -96,14 +142,15 @@ The value is stored as text:
 - `commandcode` and `opencode`: a small JSON wrapper containing the API key.
 - `cursor`: a normalized JSON object extracted from the SQLite database.
 
-The whole file is written atomically with mode `0600`. When `lairen update`
-rebinds an account whose identity changed, it writes the blob under the new
-`provider:id` key and removes the old key.
+The whole file is written atomically with mode `0600`.
+
+`auth.stored` records intent; `lairen status` and `deploy copy` verify the blob
+is actually present.
 
 ## Snapshots
 
-Before `deploy` overwrites an existing target credential, it copies the target
-to:
+Before `deploy copy` overwrites an existing target credential, it copies the
+target to:
 
 ```text
 <state>/snapshots/<provider>-<UTC timestamp>/<credential relpath>
@@ -112,100 +159,62 @@ to:
 For example:
 
 ```text
-~/.local/share/lairen/state/snapshots/codex-20261026T120000000000Z/auth.json
+~/.local/share/lairen/state/snapshots/codex-20261112T120000000000Z/auth.json
 ```
 
 Snapshots are ordinary files with mode `0600`. They are never pruned
 automatically; delete old timestamp directories when you no longer need them.
 Use `--no-backup` to skip snapshot creation for a deployment.
 
+`deploy link` creates a symlink and does not snapshot.
+
 ## Deployment log
 
 `<state>/deployments.jsonl` is an append-only JSON Lines history written by
-`deploy`, `sync`, `update`, and `remove`. It records the account, alias, target
-home, source home, and timestamp. No token material is written. `status` uses
-only `deploy` entries for lease reporting, so `sync` does not create a project
-lease.
+`deploy copy`, `deploy link`, `deploy unlink`, `account sync`, `account
+update`, `account set-home`, `account clear-home`, and `account remove`. No
+token material is written.
+
+Deployment entries (`action` is `deploy` or `link`) carry a `mode`:
 
 ```json
 {
-  "ts": "2026-10-26T12:00:00+00:00",
+  "ts": "2026-11-12T04:20:00+00:00",
   "action": "deploy",
+  "mode": "copy",
   "provider": "codex",
   "ref": "codex/alice@example.com",
-  "alias": "work",
-  "project": "/home/me/code/project-b",
-  "home": "/home/me/code/project-b/.codex",
-  "source_home": "/home/me/code/project-a/.codex"
+  "alias": "aj",
+  "project": "/home/alice/code/project-b",
+  "home": "/home/alice/code/project-b/.codex",
+  "source_home": "/home/alice/codex-holders/codex-aj"
 }
 ```
 
-`lairen status` uses deploy entries to report which other projects hold an
-account, checking each target's current credential and marking overwritten
-targets. Legacy `last_deployed_home` pointers are materialized as deploy entries
-by [`lairen migrate`](../reference/cli.md#migrate); they are not read at
-runtime.
+Link entries use `"action": "link"` and `"mode": "link"`; `home` is the project
+symlink path and `source_home` is the holder home.
 
-## Schema and migrations
+`status` uses `deploy` and `link` entries for other-project reporting. `sync`
+entries do not create a project lease.
 
-`data/schema.json` records the state version as `{"version": N}`. The current
-version is 2. There is no automatic migration: commands refuse to read state
-that has no marker or an unsupported version and point at `lairen migrate`.
+## Migration details
 
-- Existing state without `schema.json` is legacy version 1.
-- Versions below the minimum supported version must be migrated manually or
-  the lairen state recreated.
-- Versions newer than the installed lairen require upgrading lairen.
+`lairen migrate` from v1/v2:
 
-`lairen migrate` backs up the registry, deployment log, and schema marker to
-`state/migrations/<UTC timestamp>/` before writing, unless `--no-backup` is
-given. It also accepts `--project HOME=PROJECT` for custom home names that
-cannot be inferred.
+1. Backs up the registry, deployment log, and schema marker.
+2. Converts accounts to the `auth` + `holder` shape.
+3. Keeps old `source_home` as `auth.source_home`.
+4. Moves legacy `last_deployed_at` / `last_deployed_home` values into the
+   deployment log when no deployment entry exists.
+5. Adds `mode: "copy"` to existing deployment entries.
+6. Writes the v3 marker.
 
-## Provider home resolution
+It does not adopt `source_home` as a holder. It prints candidate homes:
 
-For `register`, a provider home is resolved in this order:
+```text
+holder unset   : 1
+  codex/alice@example.com  --home /home/alice/codex-holders/codex-aj
+  fix: lairen account set-home REF --home PATH
+```
 
-1. `--home PATH`
-2. the provider's environment variable, such as `CODEX_HOME` or
-   `KIMI_CODE_HOME`
-3. the provider's default home
-
-For `deploy`, `--home` selects the target and may be relative to `--project`;
-when omitted, lairen uses `<project>/<provider native name>`. lairen never
-reads an environment variable to choose a deployment target.
-
-| Provider | Native project home |
-|---|---|
-| `claude` | `.claude` |
-| `codex` | `.codex` |
-| `commandcode` | `.commandcode` |
-| `cursor` | none; `--home` is required |
-| `kimi` | `.kimi-code` |
-| `opencode` | `.opencode` |
-
-Deploy entries also store the resolved `project`, so custom home directory
-names keep their project association. `lairen associations` and
-`lairen available` read those entries without scanning project directories.
-
-| Provider | Environment variable | Default home |
-|---|---|---|
-| `claude` | `CLAUDE_CONFIG_DIR` | `~/.claude` |
-| `codex` | `CODEX_HOME` | `~/.codex` |
-| `commandcode` | `COMMANDCODE_HOME` | `~/.commandcode` |
-| `cursor` | `CURSOR_HOME` | `${XDG_CONFIG_HOME:-~/.config}/Cursor/User/globalStorage` |
-| `kimi` | `KIMI_CODE_HOME` | `~/.kimi-code` |
-| `opencode` | `OPENCODE_HOME` | `${XDG_DATA_HOME:-~/.local/share}/opencode` |
-
-`--home` is the provider home directory itself, not the credential file. For
-Codex, pass `~/.codex`, not `~/.codex/auth.json`. For Kimi, pass
-`~/.kimi-code`, not its `credentials/` subdirectory.
-
-## What lairen does not store
-
-- It does not copy whole provider homes, only the credential file.
-- It does not write to the source home during `register`.
-- It does not refresh tokens automatically. `lairen sync` copies a fresher
-  credential from a known home back into the store explicitly.
-- It does not encrypt the credential store. See the
-  [security model](security.md).
+Attach holders explicitly after migration.

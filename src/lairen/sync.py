@@ -8,10 +8,12 @@ from pathlib import Path
 
 from lairen.deployments import DeploymentLog, record_event
 from lairen.errors import LairenError
-from lairen.models import Account
+from lairen.holder import clear_holder_stale
+from lairen.models import Account, Auth
 from lairen.paths import Paths
 from lairen.providers.base import Identity, Provider
-from lairen.store import CredentialStore, Registry
+from lairen.store import CredentialStore
+from lairen.util import utc_now
 
 Freshness = tuple[float, float, float]
 
@@ -96,10 +98,13 @@ def candidate_homes(
     *,
     extra_homes: tuple[Path, ...] = (),
     include_known: bool = True,
+    holder_only: bool = False,
 ) -> list[Path]:
     """Return the homes that may hold a live copy of the account."""
     homes: list[Path] = []
-    if include_known:
+    if account.holder is not None and account.holder.home:
+        homes.append(Path(account.holder.home).expanduser().resolve())
+    if include_known and not holder_only:
         log = DeploymentLog(paths.deployments_path)
         for entry in log.leases_for(log.related_refs(account.ref)):
             raw = str(entry.get("home") or "")
@@ -120,12 +125,12 @@ def candidate_homes(
 
 
 def check_overwrite(
-    registry: Registry,
     store: CredentialStore,
     adapter: Provider,
     target_home: Path,
     target_path: Path,
     deployed_ref: str,
+    registry=None,
 ) -> OverwriteCheck:
     """Inspect an existing target before deploy replaces it."""
     try:
@@ -135,7 +140,7 @@ def check_overwrite(
         return OverwriteCheck()
 
     target_ref = f"{adapter.name}/{identity.id}"
-    account = registry.get(adapter.name, identity.id)
+    account = registry.get(adapter.name, identity.id) if registry is not None else None
     if account is None:
         return OverwriteCheck(
             warning=(
@@ -149,7 +154,10 @@ def check_overwrite(
         return OverwriteCheck(
             blocked=True,
             reason=f"it holds a credential for {target_ref}, but the store has no copy",
-            advice=f"Run `lairen update {target_ref} --home {target_home}` to save it first.",
+            advice=(
+                f"Run `lairen account sync {target_ref} "
+                f"--home {target_home}` to save it first."
+            ),
         )
 
     if not is_fresher(adapter, target_blob, stored_blob):
@@ -157,11 +165,11 @@ def check_overwrite(
 
     if target_ref == deployed_ref:
         advice = (
-            f"Run `lairen sync {deployed_ref} --home {target_home}` or "
-            f"`lairen deploy {deployed_ref} --home {target_home} --refresh` first."
+            f"Run `lairen account sync {deployed_ref} --home {target_home}` or "
+            f"`lairen deploy copy {deployed_ref} --home {target_home} --sync` first."
         )
     else:
-        advice = f"Run `lairen sync {target_ref} --home {target_home}` first."
+        advice = f"Run `lairen account sync {target_ref} --home {target_home}` first."
     return OverwriteCheck(
         blocked=True,
         reason=f"it holds a newer credential for {target_ref} than the registry copy",
@@ -195,14 +203,10 @@ def plan_sync(
 ) -> SyncPlan:
     """Choose the freshest same-identity credential among the given homes."""
     plan = SyncPlan(account=account)
-    if stored_blob is None:
-        plan.state = "missing-store-blob"
-        return plan
     if not homes:
         plan.state = "no-known-homes"
         return plan
 
-    stored_refresh, stored_access = _expiry_pair(adapter, stored_blob)
     candidates: list[SyncCandidate] = []
     for home in homes:
         try:
@@ -213,15 +217,24 @@ def plan_sync(
         if candidate.identity.id != account.id:
             plan.problems.append(
                 f"{home} now belongs to {adapter.name}/{candidate.identity.id}; "
-                f"run lairen update {account.ref} --home {home}"
+                f"run lairen account update {account.ref} --home {home}"
             )
             continue
         candidates.append(candidate)
 
     if not candidates:
+        plan.state = "no-usable-homes" if plan.problems else "no-known-homes"
         return plan
 
     best = max(candidates, key=lambda item: item.freshness)
+    if stored_blob is None:
+        plan.state = "update"
+        plan.home = best.home
+        plan.blob = best.blob
+        plan.new_access_expires_at = best.access_expires_at or None
+        return plan
+
+    stored_refresh, stored_access = _expiry_pair(adapter, stored_blob)
     stored_pair = (stored_refresh, stored_access)
     candidate_pair = (best.refresh_expires_at, best.access_expires_at)
     if is_fresher(adapter, best.blob, stored_blob):
@@ -231,19 +244,30 @@ def plan_sync(
         plan.old_access_expires_at = stored_access or None
         plan.new_access_expires_at = best.access_expires_at or None
     elif stored_pair == (0.0, 0.0) and candidate_pair == (0.0, 0.0):
-        plan.notes.append("no token expiry metadata; use lairen update to force a refresh")
+        plan.notes.append("no token expiry metadata; use lairen account update to force a refresh")
     return plan
 
 
 def apply_sync(paths: Paths, store: CredentialStore, plan: SyncPlan) -> None:
-    """Write a planned update into the store and record the event."""
+    """Write a planned update into the store and update account metadata.
+
+    The caller is responsible for saving the mutated account in the registry.
+    """
     if plan.state != "update" or plan.blob is None or plan.home is None:
         return
-    store.set(plan.account.provider, plan.account.id, plan.blob)
+    account = plan.account
+    store.set(account.provider, account.id, plan.blob)
+    home = str(plan.home.resolve())
+    account.auth = Auth(stored=True, captured_at=utc_now(), source_home=home)
+    if account.holder is not None and account.holder.home:
+        if Path(account.holder.home).expanduser().resolve() == plan.home.resolve():
+            clear_holder_stale(account.holder)
+            account.holder.verified_at = utc_now()
     record_event(
         paths.deployments_path,
         "sync",
-        plan.account,
-        home=str(plan.home),
-        source_home=plan.account.source_home,
+        account,
+        home=home,
+        source_home=home,
+        mode="sync",
     )

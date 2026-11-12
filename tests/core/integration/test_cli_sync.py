@@ -65,15 +65,26 @@ def write_kimi(
     )
 
 
-def show_usage(tmp_path: Path, ref: str) -> dict[str, object]:
-    runner = CliRunner()
-    result = runner.invoke(cli, ["show", ref])
+def show_usage(runner: CliRunner, ref: str) -> dict[str, object]:
+    result = runner.invoke(cli, ["account", "show", ref, "--json"])
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)["usage"]
+    return json.loads(result.output)["auth"]["usage"]
 
 
-def register(runner: CliRunner, home: Path, alias: str) -> None:
-    result = runner.invoke(cli, ["register", "codex", "--home", str(home), "--alias", alias])
+def add(runner: CliRunner, provider: str, home: Path, alias: str) -> None:
+    result = runner.invoke(
+        cli,
+        [
+            "account",
+            "add",
+            "--provider",
+            provider,
+            "--home",
+            str(home),
+            "--alias",
+            alias,
+        ],
+    )
     assert result.exit_code == 0, result.output
 
 
@@ -83,16 +94,18 @@ def test_sync_updates_store_from_refreshed_deployment(tmp_path, monkeypatch) -> 
     project = tmp_path / "project"
     write_codex(source, last_refresh="old-refresh")
     runner = CliRunner()
-    register(runner, source, "work")
-    assert runner.invoke(cli, ["deploy", "work", "--home", str(project / ".codex")]).exit_code == 0
+    add(runner, "codex", source, "work")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "work", "--home", str(project / ".codex")]
+    ).exit_code == 0
     write_codex(project / ".codex", last_refresh="new-refresh", expires=2_000_100_000)
 
-    result = runner.invoke(cli, ["sync", "work"])
+    result = runner.invoke(cli, ["account", "sync", "work"])
     assert result.exit_code == 0, result.output
     assert "updated codex/alice@example.com" in result.output
     assert str(project / ".codex") in result.output
 
-    usage = show_usage(tmp_path, "work")
+    usage = show_usage(runner, "work")
     assert usage["last_refresh"] == "new-refresh"
     assert usage["access_token_expires_at"] == 2_000_100_000
 
@@ -114,16 +127,20 @@ def test_sync_dry_run_reports_without_writing(tmp_path, monkeypatch) -> None:
     project = tmp_path / "project"
     write_codex(source, last_refresh="old-refresh")
     runner = CliRunner()
-    register(runner, source, "work")
-    assert runner.invoke(cli, ["deploy", "work", "--home", str(project / ".codex")]).exit_code == 0
+    add(runner, "codex", source, "work")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "work", "--home", str(project / ".codex")]
+    ).exit_code == 0
     write_codex(project / ".codex", last_refresh="new-refresh", expires=2_000_100_000)
 
-    result = runner.invoke(cli, ["sync", "work", "--dry-run"])
+    result = runner.invoke(cli, ["account", "sync", "work", "--dry-run"])
     assert result.exit_code == 0, result.output
     assert "would update" in result.output
-    assert show_usage(tmp_path, "work")["last_refresh"] == "old-refresh"
+    assert show_usage(runner, "work")["last_refresh"] == "old-refresh"
 
-    result = runner.invoke(cli, ["sync", "work", "--dry-run", "--strict"])
+    result = runner.invoke(
+        cli, ["account", "sync", "work", "--dry-run", "--strict"]
+    )
     assert result.exit_code == 1
     assert "strict sync failed" in result.output
 
@@ -134,8 +151,10 @@ def test_sync_skips_identity_change_and_strict_fails(tmp_path, monkeypatch) -> N
     project = tmp_path / "project"
     write_codex(source, email="alice@example.com", last_refresh="old-refresh")
     runner = CliRunner()
-    register(runner, source, "work")
-    assert runner.invoke(cli, ["deploy", "work", "--home", str(project / ".codex")]).exit_code == 0
+    add(runner, "codex", source, "work")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "work", "--home", str(project / ".codex")]
+    ).exit_code == 0
     write_codex(
         project / ".codex",
         email="bob@example.com",
@@ -143,13 +162,13 @@ def test_sync_skips_identity_change_and_strict_fails(tmp_path, monkeypatch) -> N
         expires=2_000_100_000,
     )
 
-    result = runner.invoke(cli, ["sync", "work"])
+    result = runner.invoke(cli, ["account", "sync", "work"])
     assert result.exit_code == 0, result.output
     assert "now belongs to codex/bob@example.com" in result.output
-    assert "run lairen update codex/alice@example.com" in result.output
-    assert show_usage(tmp_path, "work")["last_refresh"] == "old-refresh"
+    assert "run lairen account update codex/alice@example.com" in result.output
+    assert show_usage(runner, "work")["last_refresh"] == "old-refresh"
 
-    result = runner.invoke(cli, ["sync", "work", "--strict"])
+    result = runner.invoke(cli, ["account", "sync", "work", "--strict"])
     assert result.exit_code == 1
     assert "strict sync failed" in result.output
 
@@ -160,34 +179,38 @@ def test_sync_never_downgrades_the_store(tmp_path, monkeypatch) -> None:
     project = tmp_path / "project"
     write_codex(source, last_refresh="new-refresh", expires=2_000_100_000)
     runner = CliRunner()
-    register(runner, source, "work")
-    assert runner.invoke(cli, ["deploy", "work", "--home", str(project / ".codex")]).exit_code == 0
+    add(runner, "codex", source, "work")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "work", "--home", str(project / ".codex")]
+    ).exit_code == 0
     write_codex(project / ".codex", last_refresh="stale-refresh", expires=1_999_000_000)
 
-    result = runner.invoke(cli, ["sync", "work"])
+    result = runner.invoke(cli, ["account", "sync", "work"])
     assert result.exit_code == 0, result.output
     assert "current codex/alice@example.com" in result.output
-    assert show_usage(tmp_path, "work")["last_refresh"] == "new-refresh"
+    assert show_usage(runner, "work")["last_refresh"] == "new-refresh"
 
 
-def test_deploy_refresh_captures_target_tokens(tmp_path, monkeypatch) -> None:
+def test_deploy_copy_sync_captures_target_tokens(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LAIREN_HOME", str(tmp_path / "lairen"))
     source = tmp_path / "source"
     target_b = tmp_path / "target-b"
     target_c = tmp_path / "target-c"
     write_codex(source, last_refresh="old-refresh")
     runner = CliRunner()
-    register(runner, source, "work")
-    assert runner.invoke(cli, ["deploy", "work", "--home", str(target_b / ".codex")]).exit_code == 0
+    add(runner, "codex", source, "work")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "work", "--home", str(target_b / ".codex")]
+    ).exit_code == 0
     write_codex(target_b / ".codex", last_refresh="new-refresh", expires=2_000_100_000)
 
     result = runner.invoke(
         cli,
-        ["deploy", "work", "--home", str(target_c / ".codex"), "--refresh"],
+        ["deploy", "copy", "work", "--home", str(target_c / ".codex"), "--sync"],
     )
     assert result.exit_code == 0, result.output
     assert "synced codex/alice@example.com" in result.output
-    assert show_usage(tmp_path, "work")["last_refresh"] == "new-refresh"
+    assert show_usage(runner, "work")["last_refresh"] == "new-refresh"
 
     deployed = json.loads((target_c / ".codex" / "auth.json").read_text(encoding="utf-8"))
     assert deployed["last_refresh"] == "new-refresh"
@@ -199,19 +222,28 @@ def test_sync_home_restricts_sources_and_requires_one_ref(tmp_path, monkeypatch)
     project = tmp_path / "project"
     write_codex(source, last_refresh="old-refresh")
     runner = CliRunner()
-    register(runner, source, "work")
-    assert runner.invoke(cli, ["deploy", "work", "--home", str(project / ".codex")]).exit_code == 0
+    add(runner, "codex", source, "work")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "work", "--home", str(project / ".codex")]
+    ).exit_code == 0
     write_codex(project / ".codex", last_refresh="new-refresh", expires=2_000_100_000)
 
-    result = runner.invoke(cli, ["sync", "work", "--home", str(project / ".codex")])
+    result = runner.invoke(
+        cli, ["account", "sync", "work", "--home", str(project / ".codex")]
+    )
     assert result.exit_code == 0, result.output
     assert "updated codex/alice@example.com" in result.output
 
-    result = runner.invoke(cli, ["sync", "--home", str(project / ".codex")])
+    result = runner.invoke(
+        cli, ["account", "sync", "--home", str(project / ".codex")]
+    )
     assert result.exit_code == 1
     assert "--home requires a REF" in result.output
 
-    result = runner.invoke(cli, ["sync", "work", "other", "--home", str(project / ".codex")])
+    result = runner.invoke(
+        cli,
+        ["account", "sync", "work", "other", "--home", str(project / ".codex")],
+    )
     assert result.exit_code == 1
     assert "--home accepts only one REF" in result.output
 
@@ -222,12 +254,10 @@ def test_sync_prefers_later_refresh_expiry_for_kimi(tmp_path, monkeypatch) -> No
     project = tmp_path / "project"
     write_kimi(source, access_expires=2_000_000_000, refresh_expires=2_000_100_000)
     runner = CliRunner()
-    result = runner.invoke(cli, ["register", "kimi", "--home", str(source), "--alias", "kimi-1"])
-    assert result.exit_code == 0, result.output
-    assert (
-        runner.invoke(cli, ["deploy", "kimi-1", "--home", str(project / ".kimi-code")]).exit_code
-        == 0
-    )
+    add(runner, "kimi", source, "kimi-1")
+    assert runner.invoke(
+        cli, ["deploy", "copy", "kimi-1", "--home", str(project / ".kimi-code")]
+    ).exit_code == 0
     write_kimi(
         project / ".kimi-code",
         access_expires=2_000_050_000,
@@ -235,10 +265,10 @@ def test_sync_prefers_later_refresh_expiry_for_kimi(tmp_path, monkeypatch) -> No
         marker="new",
     )
 
-    result = runner.invoke(cli, ["sync", "kimi-1"])
+    result = runner.invoke(cli, ["account", "sync", "kimi-1"])
     assert result.exit_code == 0, result.output
     assert "updated kimi/user-1--device-1" in result.output
 
-    usage = show_usage(tmp_path, "kimi-1")
+    usage = show_usage(runner, "kimi-1")
     assert usage["refresh_token_expires_at"] == 2_001_000_000
     assert usage["access_token_expires_at"] == 2_000_050_000

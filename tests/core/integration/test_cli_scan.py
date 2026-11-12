@@ -54,14 +54,14 @@ def write_kimi(home: Path, user_id: str, device_id: str) -> None:
     )
 
 
-def test_scan_and_register(tmp_path, monkeypatch) -> None:
+def test_account_scan_and_add(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LAIREN_HOME", str(tmp_path / "lairen"))
     workspace = tmp_path / "workspace"
     write_codex(workspace / "project-a", "alice@example.com")
     write_kimi(workspace / "project-b", "user-1", "device-1")
 
     runner = CliRunner()
-    result = runner.invoke(cli, ["scan", str(workspace), "--json"])
+    result = runner.invoke(cli, ["account", "scan", str(workspace), "--json"])
     assert result.exit_code == 0, result.output
     hits = json.loads(result.output)
     assert {hit["ref"] for hit in hits} == {
@@ -69,15 +69,17 @@ def test_scan_and_register(tmp_path, monkeypatch) -> None:
         "kimi/user-1--device-1",
     }
 
-    result = runner.invoke(cli, ["scan", str(workspace), "--register"])
+    result = runner.invoke(cli, ["account", "scan", str(workspace), "--add"])
     assert result.exit_code == 0, result.output
-    assert "registered codex/alice@example.com" in result.output
-    assert "registered kimi/user-1--device-1" in result.output
+    assert "account codex/alice@example.com" in result.output
+    assert "account kimi/user-1--device-1" in result.output
 
-    result = runner.invoke(cli, ["list", "--json"])
+    result = runner.invoke(cli, ["account", "list", "--json"])
     assert result.exit_code == 0, result.output
     accounts = json.loads(result.output)
     assert {account["ref"] for account in accounts} == {
         "codex/alice@example.com",
         "kimi/user-1--device-1",
     }
+    assert all(account["auth"]["stored"] for account in accounts)
+    assert all(account["holder"] for account in accounts)

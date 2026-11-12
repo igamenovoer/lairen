@@ -1,222 +1,151 @@
-# Deploy credentials
+# Deploy an account
 
-`deploy` writes a saved credential into a target provider home. The target can
-be given explicitly with `--home`, or derived from `--project` and the
-provider's native project home name. Any existing credential is snapshotted
-before it is replaced.
+`lairen deploy` has three modes. All three address an account by ref or alias.
 
-```bash
-lairen deploy REF [--project PATH] [--home PATH] [--no-backup] [--refresh] [--force]
-```
-
-## Target home resolution
-
-`--home` names the provider home directory, not the credential file:
-
-| Provider | Pass | lairen writes |
+| Mode | What it does | Requires |
 |---|---|---|
-| `codex` | `--home ./project/.codex` | `./project/.codex/auth.json` |
-| `kimi` | `--home ./project/.kimi-code` | `./project/.kimi-code/credentials/<name>.json` |
-| `claude` | `--home ./project/.claude` | `.credentials.json`, plus `oauthAccount` in `.claude.json` |
-| `commandcode` | `--home ./project/.commandcode` | `auth.json` |
-| `cursor` | `--home ~/.config/Cursor/User/globalStorage` | `state.vscdb` |
-| `opencode` | `--home ./project/.opencode` | `auth.json` |
+| `copy` | Write stored auth into a project home | stored auth |
+| `link` | Symlink a project home to the holder | holder home |
+| `env` | Print a shell export for the holder | holder home + provider env var |
 
-Omit `--home` to use the provider's native project home:
+## Target resolution
 
-| Provider | Home under the project |
+`copy` and `link` share project target resolution:
+
+- omit `--home` to use `<project>/<provider project home>`
+- `--project` selects the project root; otherwise the current directory is used
+- a relative `--home` resolves under `--project` or the current directory
+- an absolute `--home` is used as-is
+- Cursor has no default project home and requires `--home`
+
+Project home names:
+
+```text
+codex        .codex
+kimi         .kimi-code
+claude       .claude
+commandcode  .commandcode
+opencode     .opencode
+cursor       (none)
+```
+
+## Copy
+
+```bash
+lairen deploy copy aj --project ~/code/project-a
+lairen deploy copy aj --home ~/code/project-a/.codex-2
+lairen deploy copy aj --project ~/code/project-a --sync
+```
+
+`copy` writes the credential blob stored in lairen. It requires `account add`
+(or `account sync`) to have captured auth first.
+
+Before writing, lairen:
+
+1. warns when the target looks like another provider's home
+2. inspects an existing target credential
+3. refuses to overwrite a newer credential for the same or another account
+   unless `--force` is given
+4. snapshots the existing target unless `--no-backup`
+
+`--sync` first runs `account sync` for the account, then writes the refreshed
+blob.
+
+### Holder staleness
+
+If the account has a holder and the copy target is not the holder, a successful
+copy marks the holder `possibly-stale`:
+
+```text
+note: holder /home/me/codex-holders/codex-aj is now possibly stale;
+      run `lairen account sync codex/alice@example.com
+      --home /home/me/codex-holders/codex-aj` to refresh it
+```
+
+The mark is advisory. `link` and `env` still work and warn. `status --strict`
+fails and prints the same remediation.
+
+If the copy target is the holder home, lairen clears the stale mark instead and
+notes that stored auth replaced the live holder.
+
+## Link
+
+```bash
+lairen deploy link aj --project ~/code/project-a
+lairen deploy link aj --project ~/code/project-a --home .codex-holder
+```
+
+`link` creates a symlink from the project home to the holder home. No credential
+is copied. Sessions, caches, and refreshed tokens stay in the holder.
+
+Rules:
+
+- a symlink already pointing at the holder is a no-op
+- a symlink to another target is replaced only with `--force`
+- a real directory or file is never replaced; move it aside first
+- a target equal to the holder home is rejected
+- a stale holder warns on stderr but the link is created
+
+Remove a link with:
+
+```bash
+lairen deploy unlink aj --project ~/code/project-a --yes
+```
+
+`unlink` removes only a symlink that points at the account's holder.
+
+## Env
+
+```bash
+eval "$(lairen deploy env aj)"
+```
+
+For Bash/Zsh:
+
+```text
+export CODEX_HOME='/home/me/codex-holders/codex-aj'
+```
+
+Supported shells: `sh`, `bash`, `zsh`, `fish`, `csh`, `tcsh`, `powershell`,
+`pwsh`, `nu`, and `nushell`. `auto` detects from `$SHELL` and defaults to
+POSIX `sh`.
+
+```bash
+eval "$(lairen deploy env aj --shell fish)"
+```
+
+Only the export goes to stdout. Warnings (including a stale holder) go to
+stderr, so `eval` is safe.
+
+Cursor has no provider home environment variable; use `link` instead.
+
+## Staleness lifecycle
+
+| Event | Holder state |
 |---|---|
-| `kimi` | `.kimi-code` |
-| `codex` | `.codex` |
-| `claude` | `.claude` |
-| `commandcode` | `.commandcode` |
-| `opencode` | `.opencode` |
-| `cursor` | none; `--home` is required |
+| `account add` | `ok` |
+| `account set-home` | `ok` |
+| `account update` | `ok` |
+| `account sync` reading the holder | `ok` |
+| `deploy copy` to another home | `possibly-stale` |
+| `deploy copy` to the holder | `ok` |
+| `deploy link` | unchanged |
+| `deploy env` | unchanged |
 
-A relative `--home` resolves under `--project`, or under the current directory
-when `--project` is omitted. When both are omitted, lairen prints the resolved
-target before writing. An absolute `--home` is used as-is; the current
-directory is recorded as the project only when the home is inside it.
+Derived states also include `missing` (home is gone), `no-login` (home exists
+without a credential), and `none` (no holder).
 
-```bash
-cd ~/code/project-c
-lairen deploy kimi-6240                 # -> ./.kimi-code
-lairen deploy kimi-6240-1 --home .kimi-code-2
-lairen deploy codex-b                   # -> ./.codex
-```
-
-A project may hold several homes for the same provider. Each deployment is a
-separate association keyed by `(provider, home)`.
-
-Tilde expansion and relative paths are supported. Missing parent directories
-are created during the write. For `cursor`, the target `state.vscdb` must
-already exist; lairen does not create a Cursor database from scratch.
-
-For Kimi, lairen always writes `credentials/kimi-code.json` in the target home,
-regardless of the source file's name. `scan` can discover environment-scoped
-files such as `kimi-code-env-*.json`; deploying one normalizes it to the
-standard name.
-
-## Resolution of REF
-
-`REF` follows the rules in [Identities and refs](../concepts/identities.md):
+## Listing deployments
 
 ```bash
-lairen deploy codex/alice@example.com --home ./project/.codex
-lairen deploy work --home ./project/.codex
-lairen deploy 'alice@example.com' --home ./project/.codex
+lairen deploy list
+lairen deploy list --group-by project --active-only
+lairen deploy list --mode link --json
+lairen deploy list --account aj
 ```
 
-`work` is an alias, `alice@example.com` is a bare id or label. Aliases resolve
-before ids and labels; the full `provider/id` form is always exact and is the
-only unambiguous choice when short handles collide.
+The newest deployment for a `(provider, home)` pair is active. Older entries
+are overwritten, including entries invalidated by an identity-changing
+`account update`.
 
-## What deploy does
-
-1. Resolves the account in the registry.
-2. Loads the credential blob from the store.
-3. Reads any existing target credential.
-4. Copies the existing target into a snapshot directory unless `--no-backup`
-   is set.
-5. Composes the new file contents. Most providers replace the file; a few merge
-   into an existing structure (see below).
-6. Writes atomically with mode `0600`.
-7. Records `last_deployed_at` and `last_deployed_home` in the registry.
-8. Appends a `deploy` entry with the resolved `project` and `home` to the
-   deployment log, which [`lairen status`](../reference/cli.md#status) and
-   [`lairen associations`](../reference/cli.md#associations) use for lease
-   reporting.
-
-Output:
-
-```text
-deployed codex/alice@example.com -> /home/alice/project/.codex/auth.json
-snapshot: /home/alice/.local/share/lairen/state/snapshots/codex-20261026T120000000000Z/auth.json
-```
-
-The snapshot line appears only when a target file existed and backups were
-enabled.
-
-## Sync before you redeploy
-
-`deploy` copies the stored credential; it cannot see tokens that a target's
-agent refreshed after the last registration. Before deploying an account to a
-new home, pull the freshest known copy back into the store:
-
-```bash
-lairen sync REF --dry-run
-lairen sync REF
-lairen deploy REF --home ./project-c/.codex
-```
-
-`sync` reads known deployed homes and the source home, compares refresh and
-access expiry, and updates only the store. It never writes a home. A home whose
-credential now belongs to a different identity is reported and must be rebound
-explicitly with `lairen update`. Use `deploy --refresh` as a one-step
-alternative; it syncs known homes and the target before writing. See
-[`sync`](../reference/cli.md#sync).
-
-## Overwrite protection
-
-Before replacing an existing target, `deploy` compares its live credential with
-the stored copy for that account. If the target is newer — the home ran and
-refreshed after the last registration — deploy refuses:
-
-```text
-refusing to overwrite /home/me/project/.codex/auth.json: it holds a newer
-credential for codex/alice@example.com than the registry copy.
-Run `lairen sync codex/alice@example.com --home /home/me/project/.codex` first.
-Pass --force to overwrite anyway.
-```
-
-Sync the account, then deploy again, or use `deploy --refresh` for the same
-account. `--force` overwrites without capturing the target tokens; the normal
-pre-deploy snapshot still preserves the file. A target whose credential is
-unregistered produces a warning rather than a refusal.
-
-## Replace versus merge
-
-| Provider | Behavior |
-|---|---|
-| `codex` | Replaces `auth.json` with the saved blob. |
-| `kimi` | Replaces the credential file with the saved blob. |
-| `claude` | Replaces `.credentials.json`, then merges `oauthAccount` fields into `.claude.json`. |
-| `commandcode` | Writes `{"apiKey": "<key>"}` to `auth.json`. |
-| `cursor` | Updates Cursor's `ItemTable` keys in place; other rows are preserved. |
-| `opencode` | Preserves other `auth.json` slots and replaces only `opencode-go`. |
-
-Merging providers still create a snapshot of the file they modify.
-
-## Snapshots and rollback
-
-Snapshots live under the state directory:
-
-```text
-<state>/snapshots/<provider>-<UTC timestamp>/<credential relpath>
-```
-
-To roll back a Codex deployment:
-
-```bash
-cp ~/.local/share/lairen/state/snapshots/codex-20261026T120000000000Z/auth.json \
-  ~/project/.codex/auth.json
-chmod 600 ~/project/.codex/auth.json
-```
-
-Snapshots are never pruned automatically. Delete old timestamp directories when
-they are no longer useful.
-
-Use `--no-backup` when the target is disposable or when a script already
-manages backups:
-
-```bash
-lairen deploy codex/alice@example.com --home /tmp/worktree/.codex --no-backup
-```
-
-## Swapping identities between projects
-
-Given two project-local Codex homes:
-
-```bash
-# Capture the login each project currently holds
-lairen register codex --home ~/code/project-a/.codex
-lairen register codex --home ~/code/project-b/.codex
-
-# Inspect the ids
-lairen list
-
-# Put A's account into B and B's account into A
-lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
-lairen deploy codex/bob@example.com   --home ~/code/project-a/.codex
-```
-
-Each deployment snapshots the file it replaces, so both previous project
-credentials remain recoverable. Both accounts remain in the registry.
-
-If one project has no login yet, register only the source, then deploy into the
-empty target. lairen creates the target home and credential file.
-
-## Verify a deployment
-
-```bash
-lairen doctor
-lairen show codex/alice@example.com
-```
-
-`doctor` reports whether each provider home now contains a login. `show`
-reports the account's metadata and the stored blob's expiry, not the contents
-of the target file.
-
-## Before you deploy
-
-If the account has been used in another home, run `lairen sync REF` or pass
-`--refresh` first. Otherwise you deploy the stored copy, which may predate the
-tokens that home is actually using.
-
-Stop any running agent that uses the same saved session, and read the
-[OAuth rotation rule](../concepts/security.md#oauth-refresh-token-rotation).
-Deployment is a copy, not a move; two active homes sharing one refresh token
-can invalidate each other.
-
-For Cursor, close the application before deploying so the SQLite database is
-not locked.
+`deploy list` replaces the old `associations` command.

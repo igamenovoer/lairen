@@ -2,16 +2,17 @@
 
 **Bring the right CLI-agent identity to the right place.**
 
-lairen is a credential registry and deployer for CLI coding agents. It stores a
-provider login once and writes it into any provider home on demand:
-project-local directories, holder directories, or throwaway worktrees.
+lairen manages CLI-agent accounts. An account is one credential identity
+accepted by a provider CLI. It can keep a credential copy inside lairen, point
+at one live holder home, or both. Projects can use the account by copying the
+stored auth, linking to the holder, or activating the holder in the shell.
 
 [Install lairen](getting-started/installation.md){ .md-button .md-button--primary }
 [Quick start](getting-started/quickstart.md){ .md-button }
 
 !!! note "Project status"
 
-    lairen is at `1.x`. The Codex and Kimi Code adapters are covered by
+    lairen is at `2.0.0`. The Codex and Kimi Code adapters are covered by
     live-credential tests. The `claude`, `commandcode`, `cursor`, and
     `opencode` adapters are implemented against their upstream storage layouts
     but remain experimental until live-credential tests exist.
@@ -20,19 +21,33 @@ project-local directories, holder directories, or throwaway worktrees.
 
 <div class="grid cards" markdown>
 
+-   :material-account-key: **Account is first class**
+
+    ---
+
+    Identity, stored auth, holder home, aliases, usage, and deployments all
+    live under one account. No separate holder registry to reconcile.
+
 -   :material-folder-lock: **Keep credentials out of repositories**
 
     ---
 
-    A project can own a `.codex` or `.kimi-code` directory without that
-    directory becoming the only copy of the login.
+    A project can own a `.codex` or `.kimi-code` path without that path
+    becoming the only copy of the login.
 
--   :material-swap-horizontal: **Deploy into any home**
+-   :material-link-variant: **Three deploy modes**
 
     ---
 
-    Write a saved login into a holder directory, a project, or a temporary
-    worktree. The target is always an explicit `--home` argument.
+    Copy stored auth, symlink a project home to the holder, or export the
+    holder in the current shell.
+
+-   :material-alert-outline: **Staleness is visible, not blocking**
+
+    ---
+
+    A copy deploy marks the holder possibly stale. `link` and `env` still work;
+    `status --strict` explains the reason and the repair command.
 
 -   :material-fingerprint: **Preserve real identities**
 
@@ -41,45 +56,53 @@ project-local directories, holder directories, or throwaway worktrees.
     Kimi identities include the device session, so two logins of the same
     account stay separately addressable as `user_id--device_id`.
 
--   :material-tag: **Stable aliases**
-
-    ---
-
-    Give long Kimi session refs a short handle that works anywhere a ref does.
-
 -   :material-clock-outline: **Inspect expiry locally**
 
     ---
 
-    `lairen usage` reports token expiry and per-provider metadata, with JSON
-    output for scripts.
-
--   :material-console: **CLI arguments first**
-
-    ---
-
-    Every input is a command-line argument. Common provider environment
-    variables such as `CODEX_HOME` are respected only as fallbacks.
+    `lairen account usage` reports token expiry and per-provider metadata,
+    with JSON output for scripts.
 
 </div>
+
+## Model
+
+```text
+account = provider + identity
+  codex  -> email / account_key
+  kimi   -> user_id--device_id
+
+account
+  ├── auth    optional credential copy inside lairen
+  ├── holder  optional live, pre-logged-in home (at most one)
+  └── deployments
+        copy  stored auth -> project home
+        link  project home -> holder home
+        env   current shell -> holder home
+```
+
+An account can have auth only, holder only, both, or neither.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    A["Provider home<br/>auth.json / credentials/*.json"] -->|register| B[("Registry<br/>metadata")]
-    A -->|register| C[("Credential store<br/>mode 0600")]
-    B --> D{deploy --home}
-    C --> D
-    D --> E["Project A<br/>.codex / .kimi-code"]
-    D --> F["Project B<br/>.codex / .kimi-code"]
-    D --> G["Holder directory"]
+    H["Live provider home<br/>auth.json / credentials/*.json"] -->|account add| B[("Account<br/>identity + auth + holder")]
+    B -->|deploy copy| P["Project home<br/>copied auth"]
+    B -->|deploy link| L["Project home<br/>symlink to holder"]
+    B -->|deploy env| S["Current shell<br/>export CODEX_HOME"]
+    B -->|account sync| H
 ```
 
-`register` reads a live provider home and saves two things: account metadata in
-the registry and the credential blob in a separate store. `deploy` resolves a
-saved account and atomically writes its credential into the target home,
-snapshotting any file it replaces.
+`account add` reads a live provider home, derives the account identity, stores
+auth by default, and records the home as the holder. `deploy copy` writes the
+stored credential into a project. `deploy link` creates a symlink. `deploy env`
+prints an export.
+
+A copy deploy to a different home marks the holder `possibly-stale`, because
+the copied session may refresh and rotate tokens. lairen never blocks the
+holder: `link`, `env`, and `status` continue to work, with warnings. `status
+--strict` fails and prints the reason plus `lairen account sync`.
 
 ## Install
 
@@ -94,11 +117,13 @@ dependencies, source checkouts, and Pixi.
 ## First commands
 
 ```bash
-lairen scan ~/code --depth 2
-lairen register codex --home ~/code/project-a/.codex
-lairen list
-lairen deploy codex/alice@example.com --home ~/code/project-b/.codex
-lairen usage
+lairen account scan ~/code --depth 2
+lairen account add --provider codex --home ~/codex-holders/codex-aj --alias aj
+lairen account list
+lairen deploy copy aj --project ~/code/project-a
+lairen deploy link aj --project ~/code/project-b
+eval "$(lairen deploy env aj)"
+lairen account usage
 ```
 
 Continue with the [Quick start](getting-started/quickstart.md).
@@ -106,22 +131,22 @@ Continue with the [Quick start](getting-started/quickstart.md).
 ## Documentation map
 
 - [Installation](getting-started/installation.md): install and verify lairen.
-- [Quick start](getting-started/quickstart.md): register, deploy, and inspect a login.
+- [Quick start](getting-started/quickstart.md): add an account, deploy all three ways, and inspect it.
 - [Identities and refs](concepts/identities.md): how accounts are keyed and resolved.
-- [Storage and paths](concepts/storage.md): where registry, credentials, snapshots, and the deployment log live.
+- [Storage and paths](concepts/storage.md): registry, credentials, snapshots, and deployment log.
 - [Scan for accounts](guides/scanning.md): discover credential homes under a directory.
-- [Deploy credentials](guides/deploying.md): target resolution, snapshots, and merge behavior.
-- [Check a project](reference/cli.md#status): accounts in use, drift, and other project leases.
-- [CLI reference](reference/cli.md): every command, option, exit code, and the agent-oriented `lairen manual`.
+- [Deploy an account](guides/deploying.md): copy, link, env, and holder staleness.
+- [Track usage and expiry](guides/usage.md): stored auth and holder metadata.
+- [CLI reference](reference/cli.md): every command, option, exit code, and `lairen manual`.
 - [Provider reference](reference/providers.md): supported agents and their storage layouts.
 
 ## Security at a glance
 
 Credential files are stored in plaintext with `0600` permissions, matching the
-native clients. lairen never prints tokens, and deployment snapshots protect
-files it overwrites. OAuth refresh tokens cannot be safely used by two active
-homes at once; read the [security model](concepts/security.md) before swapping
-accounts between projects that may run concurrently.
+native clients. lairen never prints tokens, and copy deployment snapshots
+protect files it overwrites. `link` and `env` intentionally share one live
+holder across projects, so concurrent agents still share that OAuth session.
+Read the [security model](concepts/security.md) before sharing a holder.
 
 ## License
 

@@ -270,3 +270,42 @@ def test_malformed_log_is_rejected(tmp_path) -> None:
 
     with pytest.raises(LairenError, match="line 1 is invalid"):
         migrate_state(paths)
+
+
+def test_migrates_v2_state_to_v3_without_adopting_a_holder(tmp_path) -> None:
+    paths = make_paths(tmp_path)
+    home = tmp_path / "holder"
+    home.mkdir()
+    (home / "auth.json").write_text("{}", encoding="utf-8")
+    write_registry(
+        paths,
+        [
+            {
+                "provider": "codex",
+                "id": "alice@example.com",
+                "label": "alice@example.com",
+                "source_home": str(home),
+                "alias": "work",
+                "extra": {},
+            }
+        ],
+    )
+    paths.credentials_path.write_text(
+        json.dumps({"codex:alice@example.com": "{}"}), encoding="utf-8"
+    )
+    write_schema_version(paths, 2)
+
+    report = migrate_state(paths)
+
+    assert report.from_version == 2
+    assert report.to_version == CURRENT_SCHEMA_VERSION
+    assert report.holder_unset == [("codex/alice@example.com", str(home))]
+    assert read_schema_version(paths) == CURRENT_SCHEMA_VERSION
+
+    registry = json.loads(paths.registry_path.read_text(encoding="utf-8"))
+    assert registry[0]["holder"] is None
+    assert registry[0]["auth"] == {
+        "stored": True,
+        "captured_at": None,
+        "source_home": str(home),
+    }

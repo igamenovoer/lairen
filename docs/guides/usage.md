@@ -1,148 +1,146 @@
 # Track usage and expiry
 
-`lairen usage` reports what lairen can know locally about each saved account:
-token expiry, refresh expiry where available, account identifiers, and the last
-deployment. It does not contact provider APIs.
+lairen reports local metadata from stored auth and from the live holder. It
+does not query remote quota endpoints yet.
+
+## Account overview
 
 ```bash
-lairen usage [REFS]... [--json]
-```
-
-With no refs, every saved account is included. With refs, only those accounts
-are reported. `stats` is an alias for `usage`.
-
-## Table output
-
-```bash
-lairen usage
+lairen account list
 ```
 
 ```text
-REF                          ACCESS EXPIRES (UTC)       REMAINING  LAST DEPLOYED
-codex/alice@example.com      2026-11-25T12:00:00+00:00  in 30d0h   2026-10-26T12:00:00+00:00
-kimi/u_123--d_456            2026-11-01T08:30:00+00:00  in 6d20h   -
+REF                       ALIAS  LABEL              AUTH    HOLDER                            HOLDER STATE     DEPLOYED
+codex/alice@example.com   aj     alice@example.com  stored  /home/me/codex-holders/codex-aj   ok              /home/me/code/project-a (link)
 ```
 
-`REMAINING` is computed when the command runs:
+Columns:
 
-- `in 30d0h`, `in 6h4m`, `in 12m3s`: the access token is still valid.
-- `expired 2h10m ago`: the stored token has expired.
-- `-`: no expiry claim could be extracted.
+- `AUTH`: `stored`, `missing`, or `none`
+- `HOLDER`: holder home path or `-`
+- `HOLDER STATE`: `ok`, `possibly-stale`, `missing`, `no-login`, or `none`
+- `DEPLOYED`: active copy/link targets
 
-`LAST DEPLOYED` comes from the registry and is `-` for an account that has
-never been deployed.
-
-## JSON output
+Filters:
 
 ```bash
-lairen usage --json
-lairen usage codex/alice@example.com --json
+lairen account list --available
+lairen account list --with-holder
+lairen account list --stale-holders
+lairen account list --provider codex
+lairen account list --json
 ```
 
-```json
-[
-  {
-    "ref": "codex/alice@example.com",
-    "provider": "codex",
-    "alias": "work",
-    "label": "alice@example.com",
-    "last_deployed_at": "2026-10-26T12:00:00+00:00",
-    "expires_at": "2026-11-25T12:00:00+00:00",
-    "expires_in_seconds": 2592000,
-    "expires_in": "in 30d0h",
-    "usage": {
-      "email": "alice@example.com",
-      "account_id": "acct_123",
-      "name": "Alice",
-      "last_refresh": "2026-10-26T11:55:00+00:00",
-      "access_token_expires_at": 1795608000,
-      "access_token_expires_iso": "2026-11-25T12:00:00+00:00"
-    }
-  }
-]
-```
+`--available` lists accounts with no active deployment. It replaces the old
+top-level `available` command.
 
-Fields at the top level are always present. If the credential blob is missing
-from the store, the record contains an `error` field instead of expiry and
-usage fields.
-
-`expires_in_seconds` is negative after expiry. `expires_at` and
-`expires_in` are `null` when no expiry claim exists.
-
-## Per-provider usage metadata
-
-The `usage` object is provider-specific:
-
-| Provider | Fields |
-|---|---|
-| `codex` | `email`, `account_id`, `name`, `last_refresh`, `access_token_expires_at`, `access_token_expires_iso` |
-| `kimi` | `user_id`, `device_id`, `scope`, `token_type`, `access_token_expires_at`, `access_token_expires_iso`, `refresh_token_expires_at`, `refresh_token_expires_iso` |
-| `claude` | `email`, `scopes`, `access_token_expires_at`, `access_token_expires_iso` |
-| `commandcode` | `kind`, `fingerprint` (no expiry) |
-| `cursor` | `email`, `membership_type`, `subscription_status`, `access_token_expires_at`, `access_token_expires_iso` |
-| `opencode` | `kind`, `fingerprint` (no expiry) |
-
-API-key providers have no token expiry, so their `ACCESS EXPIRES` column is
-`-`.
-
-## Show one account
-
-`lairen show` returns the account record and usage metadata as a JSON object:
+## One account
 
 ```bash
-lairen show codex/alice@example.com
+lairen account show aj
+lairen account show aj --json
 ```
+
+The JSON payload contains:
 
 ```json
 {
-  "account": {
-    "provider": "codex",
-    "id": "alice@example.com",
-    "label": "alice@example.com",
-    "source_home": "/home/alice/code/project-a/.codex",
-    "alias": "work",
-    "created_at": "2026-10-26T12:00:00+00:00",
-    "last_deployed_at": "2026-10-26T12:00:00+00:00",
-    "last_deployed_home": "/home/alice/code/project-b/.codex",
-    "extra": {
-      "email": "alice@example.com",
-      "account_id": "acct_123",
-      "name": "Alice"
+  "ref": "codex/alice@example.com",
+  "alias": "aj",
+  "auth": {
+    "stored": true,
+    "present": true,
+    "captured_at": "2026-11-12T04:00:00+00:00",
+    "source_home": "/home/me/codex-holders/codex-aj",
+    "usage": {"access_token_expires_at": 2000000000}
+  },
+  "holder": {
+    "home": "/home/me/codex-holders/codex-aj",
+    "state": "ok",
+    "live": {
+      "identity": {"id": "alice@example.com", "label": "alice@example.com"},
+      "usage": {"access_token_expires_at": 2000000000}
     }
   },
-  "usage": {
-    "email": "alice@example.com",
-    "account_id": "acct_123",
-    "name": "Alice",
-    "last_refresh": "2026-10-26T11:55:00+00:00",
-    "access_token_expires_at": 1795608000,
-    "access_token_expires_iso": "2026-11-25T12:00:00+00:00"
-  }
+  "deployments": []
 }
 ```
 
-If the registry record exists but the credential blob is missing, `show` exits
-with an error: `credential blob missing for codex/alice@example.com`.
+The exact `holder` shape includes `recorded_at`, `verified_at`, `stale`, and a
+`live` block when the holder is readable.
 
-## Why expiry can be stale
-
-lairen reports the token that was saved at registration time. When a deployed
-agent refreshes its session, the provider may issue a new access token and a
-new refresh token, and the client writes them into the live home. The stored
-blob does not change.
-
-To refresh lairen's view without resetting the account record:
+## Expiry table
 
 ```bash
-lairen sync codex/alice@example.com
+lairen account usage
+lairen account stats
+lairen account usage aj --json
+lairen account usage --json
 ```
 
-`sync` reads known deployed homes and the source home, keeps the freshest
-same-identity copy, and leaves the alias, label, and deployment history intact.
-Use [`update`](../reference/cli.md#update) when you want to force a specific
-home or rebind a changed identity. See [Sync](../reference/cli.md#sync).
+```text
+REF                       ACCESS EXPIRES (UTC)      REMAINING  HOLDER STATE
+codex/alice@example.com   2026-11-25T12:00:00+00:00 in 13d0h    ok
+```
 
-Remote quota endpoints, account balances, and live rate-limit state are not
-implemented. `Provider.local_usage()` is the extension point for a future
-remote query, but everything documented here is derived from stored
-credentials and registry metadata.
+If stored auth is missing, the record contains
+`"error": "credential blob missing"`.
+
+`expires_in_seconds` is negative after expiry. Expiry fields are null when the
+credential has no expiry claim.
+
+## Refresh stored auth
+
+Stored auth does not follow a live home automatically. After a holder or a
+deployed home refreshes:
+
+```bash
+lairen account sync aj
+lairen account sync aj --holder-only
+lairen account sync aj --home ~/code/project-b/.codex
+lairen account sync aj --dry-run
+```
+
+`sync` chooses the freshest same-identity credential and updates the store. It
+never changes the holder. When it reads the holder and the credential is
+current, it clears a stale mark.
+
+If a source now belongs to another identity, sync reports:
+
+```text
+warning: /path/.codex now belongs to codex/bob@example.com;
+         run lairen account update codex/alice@example.com --home /path/.codex
+```
+
+## Strict checks
+
+```bash
+lairen status ~/code/project-b --strict
+```
+
+Strict mode fails for:
+
+- unregistered account
+- invalid credential
+- drifted copy-source credential (`link` drift is informational)
+- copy source with no stored auth
+- stale holder
+- missing holder
+- holder with no login
+- link that points outside the account holder
+
+The error lists the account, reason, and a fix command.
+
+## Machine-readable output
+
+```bash
+lairen account list --json
+lairen account show aj --json
+lairen account usage --json
+lairen account sync --json
+lairen status ~/code/project-b --json
+lairen deploy list --json
+lairen manual json
+```
+
+See `lairen manual json` for the current record shapes.

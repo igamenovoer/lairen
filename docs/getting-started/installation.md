@@ -100,5 +100,5 @@ See [Storage and paths](../concepts/storage.md) for the full layout, the
 
 ## Next step
 
-Continue with the [Quick start](quickstart.md) to register a real login and
-deploy it into a project.
+Continue with the [Quick start](quickstart.md) to add a real account and
+deploy it with copy, link, or env.

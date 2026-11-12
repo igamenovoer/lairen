@@ -6,7 +6,7 @@ import os
 import stat
 
 from lairen.deployments import DeploymentLog, project_root_for_home, record_event
-from lairen.models import Account
+from lairen.models import Account, Auth
 
 
 def test_project_root_for_provider_homes() -> None:
@@ -106,7 +106,10 @@ def test_related_refs_follows_update_chain(tmp_path) -> None:
 
 def test_record_event_explicit_none_project_is_preserved(tmp_path) -> None:
     log_path = tmp_path / "deployments.jsonl"
-    account = Account("codex", "a@example.com", "a@example.com", "/src")
+    account = Account(
+        "codex", "a@example.com", "a@example.com",
+        auth=Auth(stored=True, source_home="/src"),
+    )
 
     record_event(
         log_path,
@@ -122,7 +125,10 @@ def test_record_event_explicit_none_project_is_preserved(tmp_path) -> None:
 
 def test_record_event_infers_project_when_omitted(tmp_path) -> None:
     log_path = tmp_path / "deployments.jsonl"
-    account = Account("codex", "a@example.com", "a@example.com", "/src")
+    account = Account(
+        "codex", "a@example.com", "a@example.com",
+        auth=Auth(stored=True, source_home="/src"),
+    )
 
     record_event(
         log_path,

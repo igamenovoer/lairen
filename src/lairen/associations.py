@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from lairen.deployments import DeploymentLog
+from lairen.deployments import DeploymentLog, is_deployment_entry
 from lairen.models import Account
 
 
 @dataclass(frozen=True)
 class Association:
-    """One account deployed into one home, with its ledger state."""
+    """One account materialized in one project home, with ledger state."""
 
     provider: str
     ref: str
@@ -21,6 +21,8 @@ class Association:
     home: str
     deployed_at: str | None
     state: str
+    mode: str = "copy"
+    source_home: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -32,6 +34,8 @@ class Association:
             "home": self.home,
             "deployed_at": self.deployed_at,
             "state": self.state,
+            "mode": self.mode,
+            "source_home": self.source_home,
         }
 
 
@@ -58,16 +62,17 @@ def build_associations(
     accounts: list[Account],
     log: DeploymentLog,
 ) -> list[Association]:
-    """Build the account/project graph from deploy entries.
+    """Build the account/project graph from deploy and link entries.
 
-    The newest deploy for a ``(provider, home)`` pair is active. Every older
-    deploy to the same pair is overwritten, even when it belongs to another
-    account. An identity-changing update overwrites earlier deploys.
+    The newest deployment for a ``(provider, home)`` pair is active. Every
+    older entry for the same pair is overwritten, even when it belongs to
+    another account. An identity-changing update overwrites earlier
+    deployments.
     """
     entries = log.entries()
     deploys: list[tuple[int, dict[str, object], str, str]] = []
     for index, entry in enumerate(entries):
-        if entry.get("action") != "deploy":
+        if not is_deployment_entry(entry):
             continue
         ref = str(entry.get("ref") or "")
         raw_home = str(entry.get("home") or "")
@@ -130,6 +135,8 @@ def build_associations(
             if rebind_stamp is not None and (deployed_at, index) < rebind_stamp:
                 state = "overwritten"
             project = entry.get("project")
+            mode = str(entry.get("mode") or ("link" if entry.get("action") == "link" else "copy"))
+            source_home = entry.get("source_home")
             associations.append(
                 Association(
                     provider=account.provider,
@@ -140,6 +147,8 @@ def build_associations(
                     home=home,
                     deployed_at=deployed_at or None,
                     state=state,
+                    mode=mode,
+                    source_home=str(source_home) if source_home else None,
                 )
             )
 

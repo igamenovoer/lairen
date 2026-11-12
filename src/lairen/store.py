@@ -43,6 +43,7 @@ class Registry:
             if existing.provider == account.provider and existing.id == account.id:
                 if account.alias is None:
                     account.alias = existing.alias
+                account.created_at = existing.created_at
                 accounts[index] = account
                 break
         else:

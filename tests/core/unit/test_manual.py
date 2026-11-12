@@ -46,7 +46,7 @@ def test_topic_payload_shape() -> None:
     payload = topic_payload("commands")
     assert payload["topic"] == "commands"
     assert payload["title"] == "Commands"
-    assert "lairen register" in payload["text"]
+    assert "lairen account add" in payload["text"]
 
 
 def test_all_payload_includes_version_and_every_topic() -> None:

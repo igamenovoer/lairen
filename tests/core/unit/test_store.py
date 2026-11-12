@@ -8,17 +8,31 @@ import stat
 import pytest
 
 from lairen.errors import LairenError
-from lairen.models import Account
+from lairen.models import Account, Auth
 from lairen.store import CredentialStore, Registry
+
+
+def make_account(
+    provider: str,
+    account_id: str,
+    label: str,
+    source_home: str,
+    *,
+    alias: str | None = None,
+) -> Account:
+    return Account(
+        provider=provider,
+        id=account_id,
+        label=label,
+        alias=alias,
+        auth=Auth(stored=True, source_home=source_home),
+    )
 
 
 def test_registry_roundtrip_and_resolution(tmp_path) -> None:
     registry = Registry(tmp_path / "registry.json")
-    account = Account(
-        provider="codex",
-        id="alice@example.com",
-        label="alice@example.com",
-        source_home="/tmp/codex",
+    account = make_account(
+        "codex", "alice@example.com", "alice@example.com", "/tmp/codex"
     )
     registry.upsert(account)
 
@@ -34,18 +48,20 @@ def test_registry_roundtrip_and_resolution(tmp_path) -> None:
 
 def test_registry_rejects_ambiguous_bare_id(tmp_path) -> None:
     registry = Registry(tmp_path / "registry.json")
-    registry.upsert(Account("codex", "id-1", "same", "/tmp/a"))
-    registry.upsert(Account("kimi", "id-2", "same", "/tmp/b"))
+    registry.upsert(make_account("codex", "id-1", "same", "/tmp/a"))
+    registry.upsert(make_account("kimi", "id-2", "same", "/tmp/b"))
     with pytest.raises(LairenError, match="ambiguous"):
         registry.resolve("same")
 
 
 def test_registry_replace_allows_id_change(tmp_path) -> None:
     registry = Registry(tmp_path / "registry.json")
-    registry.upsert(Account("codex", "old@example.com", "old", "/tmp/a", alias="work"))
-    registry.upsert(Account("kimi", "user-1", "user-1", "/tmp/k"))
+    registry.upsert(
+        make_account("codex", "old@example.com", "old", "/tmp/a", alias="work")
+    )
+    registry.upsert(make_account("kimi", "user-1", "user-1", "/tmp/k"))
 
-    replacement = Account(
+    replacement = make_account(
         "codex", "new@example.com", "new", "/tmp/b", alias="work"
     )
     registry.replace("codex", "old@example.com", replacement)

@@ -3,45 +3,51 @@
 lairen adapts to each CLI agent's own credential storage. A provider supplies:
 
 - a default home and an optional environment-variable fallback;
+- a project home name used by `deploy copy` and `deploy link`;
 - the credential path relative to the home;
 - identity extraction and local usage metadata;
 - provider-specific read, write, and merge behavior.
 
 `TESTED=yes` means the adapter is exercised against live credentials in this
 project. `TESTED=no` means the adapter implements the documented upstream
-layout but has only been tested with synthetic payloads. `register` and
-`deploy` print a warning when an experimental adapter is used.
+layout but has only been tested with synthetic payloads. `account add`,
+`account update`, `deploy copy`, and `deploy link` print a warning when an
+experimental adapter is used.
 
 ## Summary
 
-| Provider | Tested | Env fallback | Default home | Credential | Deploy behavior |
-|---|---|---:|---|---|---|
-| `claude` | no | `CLAUDE_CONFIG_DIR` | `~/.claude` | `.credentials.json` | Replaces credentials; merges `oauthAccount` into `.claude.json` |
-| `codex` | yes | `CODEX_HOME` | `~/.codex` | `auth.json` | Replaces the file |
-| `commandcode` | no | `COMMANDCODE_HOME` | `~/.commandcode` | `auth.json` | Writes `{"apiKey": "..."}` |
-| `cursor` | no | `CURSOR_HOME` | `${XDG_CONFIG_HOME:-~/.config}/Cursor/User/globalStorage` | `state.vscdb` | Updates `ItemTable` rows in place |
-| `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `credentials/kimi-code.json` | Replaces the credential file |
-| `opencode` | no | `OPENCODE_HOME` | `${XDG_DATA_HOME:-~/.local/share}/opencode` | `auth.json` | Replaces only the `opencode-go` slot |
+| Provider | Tested | Env | Default home | Project home | Credential | Deploy behavior |
+|---|---|---:|---|---|---|---|
+| `claude` | no | `CLAUDE_CONFIG_DIR` | `~/.claude` | `.claude` | `.credentials.json` | Replaces credentials; merges `oauthAccount` into `.claude.json` |
+| `codex` | yes | `CODEX_HOME` | `~/.codex` | `.codex` | `auth.json` | Replaces the file |
+| `commandcode` | no | `COMMANDCODE_HOME` | `~/.commandcode` | `.commandcode` | `auth.json` | Writes `{"apiKey": "..."}` |
+| `cursor` | no | `CURSOR_HOME` | `${XDG_CONFIG_HOME:-~/.config}/Cursor/User/globalStorage` | none | `state.vscdb` | Updates `ItemTable` rows in place |
+| `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `.kimi-code` | `credentials/kimi-code.json` | Replaces the credential file |
+| `opencode` | no | `OPENCODE_HOME` | `${XDG_DATA_HOME:-~/.local/share}/opencode` | `.opencode` | `auth.json` | Replaces only the `opencode-go` slot |
 
 Run `lairen providers` to print the same information from the installed
 version.
 
 ## Home resolution
 
-For `register`:
+`account add` requires an explicit `--home`; it does not fall back to the
+provider environment variable. `account scan` discovers homes under a
+directory. `doctor` uses the provider environment variable, then the default
+home, when reporting the default login status.
 
-1. `--home PATH`
-2. the provider environment variable
-3. the provider default home
+For `deploy copy` and `deploy link`, `--home` is optional. Omitting it uses
+`<project>/<provider project home>`. Cursor has no project home name and
+requires `--home`.
 
-For `deploy`, `--home` is mandatory. See
-[Storage and paths](../concepts/storage.md#provider-home-resolution).
+For `deploy env`, lairen prints the provider environment variable pointing at
+the account holder. Cursor has no usable home variable here; use `link`.
 
 ## codex
 
 **Tested.** Uses the ChatGPT OAuth login that Codex stores in `auth.json`.
 
 - Home: `~/.codex` (`CODEX_HOME`)
+- Project home: `.codex`
 - Credential: `auth.json`
 - Saved blob: the file contents, unchanged
 - Identity: `account_key`, else `id_token` email, else token `account_id`, else
@@ -49,14 +55,12 @@ For `deploy`, `--home` is mandatory. See
 - Deploy: replaces `auth.json`
 - Usage: email, account id, name, `last_refresh`, access-token expiry
 
-Project-local layouts such as `<project>/.codex/auth.json` are discovered by
-[scan](../guides/scanning.md).
-
 ## kimi
 
 **Tested.** Uses Kimi Code session credentials.
 
 - Home: `~/.kimi-code` (`KIMI_CODE_HOME`)
+- Project home: `.kimi-code`
 - Credential: `credentials/kimi-code.json`
 - Saved blob: the selected credential file, unchanged
 - Identity: `user_id--device_id`, falling back to `user_id`, then a hash
@@ -65,13 +69,14 @@ Project-local layouts such as `<project>/.codex/auth.json` are discovered by
 
 Kimi identities are sessions, not accounts. Two logins of the same `user_id`
 remain separately deployable because the device id is part of the ref. See
-[Identities and refs](../concepts/identities.md#why-kimi-identities-include-device_id).
+[Identities and refs](../concepts/identities.md).
 
 ## claude
 
 **Experimental.** Wraps Claude Code's credentials and account metadata.
 
 - Home: `~/.claude` (`CLAUDE_CONFIG_DIR`)
+- Project home: `.claude`
 - Credentials: `.credentials.json`
 - Saved blob: `{"credentials": {...}, "oauth_account": {...}}`
 - Identity: `oauthAccount.emailAddress`, else JWT email, else a hash
@@ -87,6 +92,7 @@ When the home is the global `~/.claude`, the account config is read from
 **Experimental.** API-key authentication.
 
 - Home: `~/.commandcode` (`COMMANDCODE_HOME`)
+- Project home: `.commandcode`
 - Credential: `auth.json`
 - Saved blob: `{"type": "api", "key": "..."}`
 - Identity: `cc-<sha256 prefix>`
@@ -99,6 +105,7 @@ When the home is the global `~/.claude`, the account config is read from
 
 - Home: `${XDG_CONFIG_HOME:-~/.config}/Cursor/User/globalStorage`
   (`CURSOR_HOME`)
+- Project home: none; `deploy copy` and `deploy link` require `--home`
 - Credential: `state.vscdb`
 - Saved blob: a normalized JSON object with access token, refresh token, email,
   auth id, membership, subscription status, and sign-up type
@@ -115,6 +122,7 @@ avoid a locked database.
 **Experimental.** Covers the `opencode-go` API-key slot only.
 
 - Home: `${XDG_DATA_HOME:-~/.local/share}/opencode` (`OPENCODE_HOME`)
+- Project home: `.opencode`
 - Credential: `auth.json`
 - Saved blob: `{"type": "api", "key": "..."}`
 - Identity: `go-<sha256 prefix>`
@@ -137,10 +145,10 @@ The store keeps each provider's blob as text:
 | `kimi` | Raw Kimi credential JSON |
 | `opencode` | `{"type": "api", "key": "..."}` |
 
-See [Storage and paths](../concepts/storage.md#credential-store-format) for the
-store's outer format and permissions.
+See [Storage and paths](../concepts/storage.md) for the store's outer format
+and permissions.
 
 ## Adding a provider
 
 Adapters are subclasses of `lairen.providers.base.Provider`. See
-[Contributing](../development/contributing.md#adding-a-provider).
+[Contributing](../development/contributing.md).

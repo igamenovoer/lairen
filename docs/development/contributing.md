@@ -64,11 +64,14 @@ repository support such as docs or scripts under `tests/aux/`.
 - mypy checks `src/`.
 - Keep provider logic inside `src/lairen/providers/`; the CLI and store should
   stay provider-agnostic.
+- Account identity, auth, and holder state live in `src/lairen/models.py`.
+  Holder health and stale-mark helpers live in `src/lairen/holder.py`.
 
 ## Adding a provider
 
 1. Add `src/lairen/providers/<name>.py` with a `Provider` subclass.
-2. Set `name`, `env_var`, `DEFAULT_HOME`, and `CREDENTIAL_RELPATH`.
+2. Set `name`, `env_var`, `DEFAULT_HOME`, `CREDENTIAL_RELPATH`, and
+   `PROJECT_HOME_NAME` (or leave the project name `None` and require `--home`).
 3. Implement `parse_identity()` and `local_usage()`.
 4. Override `read_live()`, `write_live()`, `compose()`, or `deploy()` when the
    upstream layout is not a single JSON file.
@@ -78,7 +81,7 @@ repository support such as docs or scripts under `tests/aux/`.
 7. Document it in `docs/reference/providers.md` and update the summary table.
 
 Auto-discovery is deliberately limited to Codex and Kimi. A new provider can be
-registered by explicit `--home`, even if `lairen scan` does not search for it.
+registered by explicit `--home`, even if `lairen account scan` does not search for it.
 Adding scan support means extending `src/lairen/scan.py` and its tests.
 
 ## Documentation

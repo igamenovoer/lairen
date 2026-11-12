@@ -2,6 +2,63 @@
 
 All notable changes to lairen are documented here.
 
+## 2.0.0 - 2026-11-12
+
+This is a breaking redesign. The account is now the aggregate root, and the
+holder home is part of the account record instead of a separate registry.
+
+### Added
+
+- Accounts now carry `auth` metadata (`stored`, `captured_at`, `source_home`)
+  and at most one `holder` (`home`, `recorded_at`, `verified_at`, `stale`).
+- `lairen account` group: `add`, `list`, `show`, `update`, `sync`, `set-home`,
+  `clear-home`, `alias`, `usage` (`stats`), `scan`, and `remove`.
+- `lairen deploy link` symlinks a project home to the account holder.
+- `lairen deploy env` prints shell exports for POSIX, fish, csh, PowerShell,
+  and nushell.
+- `lairen deploy unlink` safely removes a project symlink.
+- `deploy copy` marks an account holder `possibly-stale` when the copy target
+  is not the holder. The mark never blocks `link` or `env`.
+- `status --strict` fails on stale, missing, or logged-out holders and prints
+  the reason plus the repair command.
+- `status` reports `source` (`copy`/`link`), holder state, links, and shell
+  bindings through the provider environment variable.
+- JSON payloads for accounts, deployments, and status now expose the nested
+  auth/holder/deployment model.
+
+### Changed
+
+- State schema is v3. Commands require migration from v1/v2.
+- `lairen migrate` converts account records to the `auth`/`holder` shape,
+  moves `last_deployed_*` bookkeeping into the deployment log, and adds
+  `mode=copy` to existing deployment entries.
+- Migration does not adopt the old `source_home` as a holder. It reports the
+  candidate homes and requires `lairen account set-home REF --home PATH`.
+- Deployment log entries now record a `mode` (`copy` or `link`), and link
+  entries participate in account/project deployment listings.
+- `deploy copy --sync` replaces `deploy --refresh`.
+- `account list --available` replaces the old `available` command.
+- `deploy list` replaces the old `associations` command.
+
+### Removed
+
+The old top-level commands are removed with no aliases:
+
+| Removed | Replacement |
+|---|---|
+| `lairen register` | `lairen account add` |
+| `lairen update` | `lairen account update` |
+| `lairen sync` | `lairen account sync` |
+| `lairen list` | `lairen account list` |
+| `lairen show` | `lairen account show` |
+| `lairen alias` | `lairen account alias` |
+| `lairen remove` | `lairen account remove` |
+| `lairen usage` / `stats` | `lairen account usage` / `account stats` |
+| `lairen scan` | `lairen account scan` |
+| `lairen deploy REF` | `lairen deploy copy REF` |
+| `lairen associations` | `lairen deploy list` |
+| `lairen available` | `lairen account list --available` |
+
 ## 1.5.0 - 2026-11-09
 
 ### Added

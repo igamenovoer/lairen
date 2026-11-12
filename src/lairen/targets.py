@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,6 +62,47 @@ def resolve_deploy_target(
         project=_infer_project(target, explicit_project, current),
         home=target,
     )
+
+
+def resolve_link_target(
+    provider: Provider,
+    project: str | Path | None = None,
+    home: str | Path | None = None,
+    *,
+    cwd: str | Path | None = None,
+) -> DeployTarget:
+    """Resolve a symlink path without following an existing final symlink.
+
+    ``DeployTarget.home`` is the path where the symlink will be created; it is
+    not the holder home it currently points to.
+    """
+    current = (
+        Path(cwd).expanduser().resolve() if cwd is not None else Path.cwd().resolve()
+    )
+    explicit_project = (
+        Path(project).expanduser().resolve() if project is not None else None
+    )
+
+    if home is None:
+        native_name = provider.PROJECT_HOME_NAME
+        if native_name is None:
+            raise LairenError(
+                f"{provider.name} has no default project home; pass --home"
+            )
+        root = explicit_project or current
+        target = Path(os.path.abspath(root / native_name))
+        target_project: Path | None = root
+    else:
+        home_path = Path(home).expanduser()
+        if home_path.is_absolute():
+            target = Path(os.path.abspath(home_path))
+        else:
+            base = explicit_project or current
+            target = Path(os.path.abspath(base / home_path))
+        target_project = _infer_project(target, explicit_project, current)
+
+    _validate_home_shape(provider, target)
+    return DeployTarget(project=target_project, home=target)
 
 
 def foreign_home_warning(provider: Provider, home: Path) -> str | None:

@@ -8,24 +8,27 @@
 
 Full documentation: <https://igamenovoer.github.io/lairen/>
 
-`lairen` is a Python credential registry and deployer for CLI coding agents.
-It stores a provider login once, then materializes it into any target home on
-demand — project-local, holder directories, or throwaway worktrees.
+`lairen` manages CLI-agent accounts for coding tools. An account is one
+credential identity accepted by a provider CLI. It can keep a credential copy
+inside lairen, point at one live holder home, or both. A project can use the
+account by copying the stored auth, linking to the holder, or activating the
+holder in the current shell.
 
-Status: `1.5.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
+Status: `2.0.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
 adapters; the other provider adapters are implemented but remain experimental
-because this project has no live credentials for them yet. Remote quota
-queries and OAuth refresh are the next milestones.
+because this project has no live credentials for them yet.
 
 ## Why
 
 - Keep credentials out of project repos and out of a single global home.
-- Deploy a saved login into an arbitrary provider home.
+- Treat an account as one thing: identity, stored auth, holder home, aliases,
+  usage, and deployments.
+- Deploy by copying auth, by symlinking a project home to the holder, or by
+  exporting the holder in the current shell.
 - Preserve session-level Kimi identity: `(user_id, device_id)`, not just
   `user_id`, so independent logins of one account stay addressable.
+- Mark a holder possibly stale after a copy deploy without preventing its use.
 - Inspect expiry and usage from one command, including machine-readable JSON.
-- Use explicit CLI arguments first; common provider environment variables are
-  respected only as fallbacks.
 
 ## Requirements
 
@@ -48,12 +51,6 @@ Run it once without installing:
 uvx lairen --help
 ```
 
-Add it to an existing uv project:
-
-```bash
-uv add lairen
-```
-
 From a source checkout:
 
 ```bash
@@ -62,7 +59,7 @@ uv pip install -e .
 uv run lairen --help
 ```
 
-For project development, use Pixi:
+For project development:
 
 ```bash
 pixi install
@@ -70,36 +67,105 @@ pixi run lairen --help
 pixi run test
 ```
 
+## Model
+
+```text
+account = provider + identity
+  codex  -> email / account_key
+  kimi   -> user_id--device_id
+
+account
+  ├── auth    optional credential copy inside lairen
+  ├── holder  optional live, pre-logged-in home (at most one)
+  └── deployments
+        copy  stored auth -> project home
+        link  project home -> holder home
+        env   current shell -> holder home
+```
+
+An account can have:
+
+- **auth only**: a normal copy-based account.
+- **holder only**: no secret stored in lairen; link/env use the live home.
+- **auth + holder**: lairen can copy or point at the live home.
+- **neither**: identity metadata only.
+
 ## Quick start
 
 Codex and Kimi are the tested paths:
 
 ```bash
-# Register a Codex home (reads auth.json, never prints tokens)
-lairen register codex --home ~/codex-holder/.codex
+# Record a live Codex home. Stores auth and makes it the holder.
+lairen account add --provider codex --home ~/codex-holders/codex-aj --alias aj
 
-# Register a Kimi home (reads credentials/kimi-code.json)
-lairen register kimi --home ~/kimi-homes/kimi-2064-1 --alias kimi-2064-1
+# Record a Kimi home without storing a credential copy.
+lairen account add --provider kimi --home ~/kimi-homes/kimi-2064-1 \
+  --alias kimi-2064-1 --holder-only
 
-# List saved identities
-lairen list
+# Account overview: auth, holder state, deployments.
+lairen account list
+lairen account show aj --json
 
-# Deploy a saved login into a project-local home
-lairen deploy codex/alice@example.com --home ./my-project/.codex
-lairen deploy kimi-2064-1 --home ./my-project/.kimi-code
+# Copy stored auth into a project home.
+lairen deploy copy aj --project ~/code/my-project
 
-# Pull tokens refreshed in a project home back into the store
-lairen sync kimi-2064-1
+# Symlink the project home to the holder instead of copying.
+lairen deploy link aj --project ~/code/other-project
 
-# Replace a stored credential from a new home, keeping the alias
-lairen update kimi-2064-1 --home ~/kimi-homes/kimi-2064-1
+# Activate the holder in the current shell.
+eval "$(lairen deploy env aj)"
 
-# Show which accounts a project is using, with aliases and other leases
-lairen status ~/my-project
+# Pull tokens refreshed in a holder or deployed home back into the store.
+lairen account sync aj
+lairen account sync aj --home ~/codex-holders/codex-aj
 
-# Usage / expiry report (alias: stats)
-lairen usage
-lairen usage kimi/alice--device-id --json
+# Show what a project is using.
+lairen status ~/code/my-project
+lairen status ~/code/my-project --strict
+```
+
+## Holder homes
+
+A holder home is one live provider home that stays in place. It is stored on
+the account, not in a separate registry:
+
+```json
+{
+  "provider": "codex",
+  "id": "alice@example.com",
+  "alias": "aj",
+  "auth": {
+    "stored": true,
+    "captured_at": "2026-11-12T04:00:00+00:00",
+    "source_home": "/home/me/codex-holders/codex-aj"
+  },
+  "holder": {
+    "home": "/home/me/codex-holders/codex-aj",
+    "recorded_at": "2026-11-10T09:00:00+00:00",
+    "verified_at": "2026-11-12T04:00:00+00:00",
+    "stale": null
+  }
+}
+```
+
+Deployment modes:
+
+- **copy** writes the stored credential into a target home. If the account has
+  a holder and the target is not the holder, the holder is marked
+  `possibly-stale`. The copy still succeeds.
+- **link** creates `<project>/<provider native home>` as a symlink to the
+  holder. Project sessions, caches, and refreshed tokens land in the holder.
+- **env** prints one shell export so the current shell and its children use the
+  holder: `eval "$(lairen deploy env aj)"`.
+
+Staleness is advisory. `link` and `env` keep working and print a warning.
+`lairen status --strict` fails and explains the reason plus the repair command:
+
+```text
+strict status failed: 1 problem(s)
+  codex/alice@example.com: holder /home/me/codex-holders/codex-aj is possibly stale
+    (since 2026-11-12T04:20:00+00:00: deploy copy -> /home/me/code/project-b/.codex)
+    fix: lairen account sync codex/alice@example.com --home /home/me/codex-holders/codex-aj
 ```
 
 ## Scanning
@@ -107,82 +173,91 @@ lairen usage kimi/alice--device-id --json
 Discover Codex and Kimi credential homes under a directory:
 
 ```bash
-lairen scan ~/code --depth 2
-lairen scan ~/kimi-homes --depth 1 --provider kimi
-lairen scan ~/tmp/workspace --register
-lairen scan ~/code --depth 2 --json
+lairen account scan ~/code --depth 2
+lairen account scan ~/codex-holders --depth 1 --provider codex
+lairen account scan ~/tmp/workspace --add
+lairen account scan ~/code --depth 2 --json
 ```
 
 Depth `0` checks only the given directory; depth `1` (the default) also checks
-its immediate children, so `~/code/project/.codex` is found at the top level.
-Symlink directories and common noise directories (`.git`, `.pixi`,
-`node_modules`, caches, build outputs) are skipped.
+its immediate children. Symlink directories and common noise directories
+(`.git`, `.pixi`, `node_modules`, caches, build outputs) are skipped.
+
+Without `--add`, scan only reports findings. With `--add`, it creates accounts
+with stored auth and a holder home. `--holder-only` records holders without
+copying auth.
 
 Known patterns:
 
-- Codex: `<dir>/auth.json` and `<dir>/.codex/auth.json`, validated by Codex
-  auth fields.
+- Codex: `<dir>/auth.json` and `<dir>/.codex/auth.json`.
 - Kimi: `<dir>/credentials/*.json`, `<dir>/.kimi-code/credentials/*.json`, and
-  `<dir>/.kimi/credentials/*.json`, validated by Kimi token fields. This
-  includes `kimi-code.json` and `kimi-code-env-*.json` names.
-
-Without `--register`, `scan` only reports findings. With `--register`, it
-saves each unique account and keeps the newest copy when the same account
-appears in multiple homes. Backup copies are reported as findings too.
+  `<dir>/.kimi/credentials/*.json`.
 
 ## Provider surface
 
-`lairen` exposes every provider surface that `subswap` supports. Adapters
-marked `tested=no` are implemented against the upstream storage layouts but
-have not been exercised with live credentials here.
-
-| Provider | Tested | Env fallback | Default home | Credential | Notes |
+| Provider | Tested | Env | Default home | Project home | Credential |
 |---|---:|---|---|---|---|
-| `claude` | no | `CLAUDE_CONFIG_DIR` | `~/.claude` | `.credentials.json` | Merges `oauthAccount` metadata on deploy |
-| `codex` | yes | `CODEX_HOME` | `~/.codex` | `auth.json` | ChatGPT OAuth |
-| `commandcode` | no | `COMMANDCODE_HOME` | `~/.commandcode` | `auth.json` | API-key auth |
-| `cursor` | no | `CURSOR_HOME` | `~/.config/Cursor/User/globalStorage` | `state.vscdb` | Desktop SQLite; close Cursor before deploying |
-| `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `credentials/*.json` | Session identity `user_id--device_id` |
-| `opencode` | no | `OPENCODE_HOME` | `~/.local/share/opencode` | `auth.json` | Go API-key slot; Console accounts use the official CLI |
+| `claude` | no | `CLAUDE_CONFIG_DIR` | `~/.claude` | `.claude` | `.credentials.json` |
+| `codex` | yes | `CODEX_HOME` | `~/.codex` | `.codex` | `auth.json` |
+| `commandcode` | no | `COMMANDCODE_HOME` | `~/.commandcode` | `.commandcode` | `auth.json` |
+| `cursor` | no | `CURSOR_HOME` | `~/.config/Cursor/User/globalStorage` | none | `state.vscdb` |
+| `kimi` | yes | `KIMI_CODE_HOME` | `~/.kimi-code` | `.kimi-code` | `credentials/*.json` |
+| `opencode` | no | `OPENCODE_HOME` | `~/.local/share/opencode` | `.opencode` | `auth.json` |
 
-Provider home resolution order for `register`:
-
-1. `--home <path>`
-2. the provider environment variable (`CODEX_HOME`, `KIMI_CODE_HOME`, ...)
-3. the provider default
-
-For `deploy`, `--home` selects the target and may be relative to `--project`.
-Omitting it uses `<project>/<provider native name>`: `.codex`, `.kimi-code`,
-`.claude`, `.commandcode`, or `.opencode`. `cursor` has no native project name
-and always needs `--home`. Provider environment variables never select a deploy
-target.
+`account add` requires an explicit `--home`; it does not fall back to the
+provider environment variable. `deploy copy` and `deploy link` use
+`<project>/<provider project home>` when `--home` is omitted. Cursor has no
+project home name and requires `--home`. `deploy env` prints the provider
+environment variable pointing at the holder.
 
 ## Commands
 
+Top level:
+
 | Command | Purpose |
 |---|---|
-| `lairen register <provider> [--home PATH] [--label NAME] [--alias NAME]` | Save the live login from a provider home |
-| `lairen update <ref> --home PATH [--label NAME]` | Replace a stored credential from a new home, keeping the alias |
-| `lairen list [--json]` | List saved accounts |
-| `lairen associations [--group-by account\|project] [--account REF] [--project DIR] [--provider P] [--active-only] [--json]` | List account/project associations from the ledger |
-| `lairen available [--provider P] [--json]` | List accounts with no active deployment |
-| `lairen show <ref>` | Show one account and its local usage metadata |
-| `lairen deploy <ref> [--project DIR] [--home PATH] [--refresh] [--force]` | Write a saved credential into a target home |
-| `lairen sync [ref ...] [--home PATH ...] [--dry-run] [--strict]` | Pull refreshed credentials from known homes into the store |
-| `lairen scan DIR [--depth N] [--provider P] [--register] [--json]` | Discover Codex/Kimi homes |
-| `lairen status [DIR] [--provider P] [--json] [--strict]` | Show which accounts a project is using |
-| `lairen usage [ref ...] [--json]` | Expiry/usage statistics (alias: `stats`) |
-| `lairen remove <ref> --yes` | Remove an account from the registry and store |
-| `lairen alias [ref] [name] [--clear] [--json]` | Set, clear, or list stable account aliases |
-| `lairen providers` | Show provider defaults, tested status, and notes |
-| `lairen doctor` | Show resolved paths, account counts, and provider homes |
-| `lairen migrate [--dry-run] [--project HOME=PROJECT] [--no-backup]` | Migrate lairen state to the current schema |
-| `lairen manual [topic] [--json]` | Agent-oriented manual; `manual all` loads the full guide |
+| `lairen account ...` | Account identity, stored auth, holder, aliases, usage, scan, remove |
+| `lairen deploy ...` | copy, link, env, list, unlink |
+| `lairen status [DIR]` | Project view with auth, holder, and deployment state |
+| `lairen providers` | Provider defaults and adapter status |
+| `lairen doctor` | Paths, counts, schema, stale holders |
+| `lairen migrate` | Migrate state to schema v3 |
+| `lairen manual` | Agent-oriented manual |
+
+Account subcommands:
+
+```text
+lairen account add --provider P --home PATH
+                   [--alias A] [--label L] [--holder-only | --no-holder]
+lairen account list [--provider P ...] [--available] [--with-holder]
+                    [--stale-holders] [--json]
+lairen account show REF [--json]
+lairen account update REF --home PATH [--label L] [--keep-home]
+lairen account sync [REF ...] [--home PATH ...] [--holder-only]
+                    [--dry-run] [--strict] [--json]
+lairen account set-home REF --home PATH [--sync] [--json]
+lairen account clear-home REF [--json]
+lairen account alias [REF] [NAME] [--clear] [--json]
+lairen account usage [REF ...] [--json]          (alias: account stats)
+lairen account scan DIR [--depth N] [--provider P] [--add] [--holder-only] [--json]
+lairen account remove REF --yes [--json]
+```
+
+Deploy subcommands:
+
+```text
+lairen deploy copy REF [--project P] [--home PATH] [--sync] [--force] [--no-backup]
+lairen deploy link REF [--project P] [--home PATH] [--force]
+lairen deploy env REF [--shell auto|sh|bash|zsh|fish|csh|tcsh|powershell|pwsh|nu]
+lairen deploy list [--account REF ...] [--project P ...] [--provider P ...]
+                   [--mode copy|link ...] [--group-by account|project]
+                   [--active-only] [--json]
+lairen deploy unlink REF [--project P] [--home PATH] --yes [--json]
+```
 
 `<ref>` is `provider/id` (for example `codex/alice@example.com` or
 `kimi/alice--<device-id>`). A unique alias, bare id, or label is also accepted;
-aliases resolve before ids and labels. Aliases are unique, survive
-re-registration, and can be managed with `lairen alias`.
+aliases resolve before ids and labels.
 
 Agents can load the complete usage guide in one call:
 
@@ -195,40 +270,52 @@ lairen manual all --json
 
 ```
 ~/.config/lairen/
-  registry.json          # account metadata: provider, id, label, alias, source
+  registry.json          # accounts: identity, auth metadata, holder, alias
 ~/.local/share/lairen/
-  schema.json            # on-disk state schema version
+  schema.json            # state schema version, current v3
   credentials.json       # credential blobs, mode 0600
-  state/snapshots/       # pre-deploy copies of overwritten target files
+  state/snapshots/       # pre-copy copies of overwritten target files
   state/migrations/      # pre-migration backups
-  state/deployments.jsonl # append-only deploy/update/remove history
+  state/deployments.jsonl # deploy/link/sync/update/remove history
 ```
 
 Set `LAIREN_HOME=/absolute/path` to keep config, data, and state under one
-root. This is a development and testing override, not an input mechanism for
-provider selection.
+root. It changes storage only; it never selects a provider home.
 
-`schema.json` versions the on-disk state. There is no automatic migration:
-commands refuse unmigrated state and point at `lairen migrate`, which backs up
-the registry and deployment log before rewriting them. Versions below the
-minimum supported version require manual migration or recreating the state.
+Schema v3 is required. State from lairen 1.x must be migrated explicitly:
+
+```bash
+lairen migrate --dry-run
+lairen migrate
+```
+
+Migration converts account records to the new `auth`/`holder` shape, moves
+legacy `last_deployed_*` bookkeeping into the deployment log, and adds
+`mode=copy` to existing deployments. It does **not** adopt old `source_home`
+values as holders. It reports them so you can attach one explicitly:
+
+```bash
+lairen account set-home REF --home PATH
+```
 
 ## Design
 
+- **Account is the aggregate root.** Identity, stored auth, holder, aliases,
+  usage, and deployments are all reachable through `lairen account`.
+- **One holder per account.** The holder is a live home, not a credential copy.
 - **Registry and credentials stay separate.** Metadata is readable; secrets
   live in one `0600` JSON file.
-- **Deployment is atomic.** Target files are written through a temporary file
-  and `os.replace`, with a pre-deploy snapshot when the target already exists.
-  Provider-specific adapters merge rather than replace where upstream expects
-  it (OpenCode Go slot, Cursor `ItemTable`, Claude `oauthAccount`).
-- **Project status reads live homes.** `lairen status` matches a project's
-  actual credentials against the registry and reports unregistered or drifted
-  copies. An append-only deployment log records which projects hold an account.
+- **Deployment is atomic.** Copy targets are written through a temporary file
+  and `os.replace`, with a pre-deploy snapshot when the target exists.
+- **Project status reads live homes.** `status` matches the project's actual
+  credentials against the registry and reports unregistered, drifted, missing,
+  linked, and env-bound state. `--strict` also fails on stale holders.
+- **Copy and link are explicit.** `deploy copy` marks a holder possibly stale;
+  `deploy link` and `deploy env` use the holder directly.
 - **Kimi identity is a session.** `user_id` plus `device_id`, joined as
   `user_id--device_id`, so multiple logins of one account remain distinct.
-- **Usage is local-first.** `lairen usage` reports token expiry and refresh
-  timestamps from stored blobs. Remote quota endpoints plug in behind
-  `Provider.local_usage()` later.
+- **Usage is local-first.** `usage` reports token expiry and refresh timestamps
+  from stored blobs. Remote quota endpoints can plug in later.
 
 ## Development
 
@@ -261,7 +348,9 @@ adapters use fake payloads or remain untested until credentials are available.
 Credential files are stored in plaintext with `0600` permissions, matching the
 native clients. Do not commit `credentials.json`, `registry.json`, or any
 provider home. Rotating OAuth refresh tokens cannot be safely shared by two
-active homes at once; prefer one active home per saved session.
+active homes at once; prefer one active home per saved session. `link` and
+`env` intentionally share one live holder across projects, so concurrent
+agents still share that OAuth session.
 
 ## Limitations
 
@@ -272,7 +361,8 @@ active homes at once; prefer one active home per saved session.
 - `claude`, `commandcode`, `cursor`, and `opencode` are experimental until
   live-credential tests are added.
 - `scan` skips symlinked directories and reports any directory with a matching
-  credential file, including backup copies; `--register` keeps the newest copy.
+  credential file, including backup copies; `--add` keeps the newest copy.
+- lairen 1.x commands are removed. See the 2.0.0 changelog for the mapping.
 
 ## License
 

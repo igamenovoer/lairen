@@ -8,7 +8,7 @@ from lairen.errors import LairenError
 from lairen.paths import Paths
 from lairen.util import atomic_write_text
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 MIN_SUPPORTED_SCHEMA_VERSION = 1
 
 
@@ -56,11 +56,11 @@ def legacy_state_present(paths: Paths) -> bool:
 
 
 def require_current_schema(paths: Paths, *, initialize: bool = True) -> None:
-    """Reject unmigrated or unsupported state.
+    """Reject unmigrated, unsupported, or older state.
 
     A completely fresh state gets the current marker when ``initialize`` is
-    true. Existing state without a marker is legacy and must be migrated
-    explicitly, even when ``initialize`` is false.
+    true. Existing state must be migrated explicitly, even when its version is
+    still supported by lower-level migration code.
     """
     version = read_schema_version(paths)
     if version is None:
@@ -73,6 +73,11 @@ def require_current_schema(paths: Paths, *, initialize: bool = True) -> None:
             write_schema_version(paths, CURRENT_SCHEMA_VERSION)
         return
     check_supported_version(version)
+    if version != CURRENT_SCHEMA_VERSION:
+        raise LairenError(
+            f"lairen state schema v{version} requires migration; "
+            f"run `lairen migrate` to upgrade to v{CURRENT_SCHEMA_VERSION}"
+        )
 
 
 def check_supported_version(version: int) -> None:
@@ -103,4 +108,6 @@ def schema_status(paths: Paths) -> str:
         )
     if version > CURRENT_SCHEMA_VERSION:
         return f"v{version} (newer than lairen v{CURRENT_SCHEMA_VERSION}; upgrade lairen)"
-    return f"v{version}" + ("" if version == CURRENT_SCHEMA_VERSION else " (migration available)")
+    if version < CURRENT_SCHEMA_VERSION:
+        return f"v{version} (migration required; run `lairen migrate`)"
+    return f"v{version}"

@@ -38,28 +38,41 @@ def write_codex_home(path: Path, email: str) -> None:
     )
 
 
-def test_register_with_alias_list_and_deploy(tmp_path, monkeypatch) -> None:
+def add(
+    runner: CliRunner,
+    home: Path,
+    *extra: str,
+) -> None:
+    result = runner.invoke(
+        cli,
+        ["account", "add", "--provider", "codex", "--home", str(home), *extra],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_account_add_with_alias_list_and_deploy(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LAIREN_HOME", str(tmp_path / "lairen"))
     home = tmp_path / "codex-home"
     write_codex_home(home, "alice@example.com")
     runner = CliRunner()
 
     result = runner.invoke(
-        cli, ["register", "codex", "--home", str(home), "--alias", "work"]
+        cli,
+        ["account", "add", "--provider", "codex", "--home", str(home), "--alias", "work"],
     )
     assert result.exit_code == 0, result.output
     assert "alias=work" in result.output
 
-    result = runner.invoke(cli, ["list", "--json"])
+    result = runner.invoke(cli, ["account", "list", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)[0]["alias"] == "work"
 
-    result = runner.invoke(cli, ["list"])
+    result = runner.invoke(cli, ["account", "list"])
     assert result.exit_code == 0, result.output
     assert "ALIAS" in result.output
 
     target = tmp_path / "target-codex"
-    result = runner.invoke(cli, ["deploy", "work", "--home", str(target)])
+    result = runner.invoke(cli, ["deploy", "copy", "work", "--home", str(target)])
     assert result.exit_code == 0, result.output
     assert (target / "auth.json").is_file()
 
@@ -69,48 +82,48 @@ def test_alias_command_lifecycle(tmp_path, monkeypatch) -> None:
     home = tmp_path / "codex-home"
     write_codex_home(home, "alice@example.com")
     runner = CliRunner()
-    assert runner.invoke(cli, ["register", "codex", "--home", str(home)]).exit_code == 0
+    add(runner, home)
 
-    result = runner.invoke(cli, ["alias", "codex/alice@example.com", "work"])
+    result = runner.invoke(
+        cli, ["account", "alias", "codex/alice@example.com", "work"]
+    )
     assert result.exit_code == 0, result.output
     assert "aliased codex/alice@example.com -> work" in result.output
 
-    result = runner.invoke(cli, ["alias", "--json"])
+    result = runner.invoke(cli, ["account", "alias", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == [
         {"ref": "codex/alice@example.com", "alias": "work"}
     ]
 
-    result = runner.invoke(cli, ["alias", "work"])
+    result = runner.invoke(cli, ["account", "alias", "work"])
     assert result.exit_code == 0, result.output
     assert result.output.strip() == "work"
 
-    result = runner.invoke(cli, ["alias", "work", "--clear"])
+    result = runner.invoke(cli, ["account", "alias", "work", "--clear"])
     assert result.exit_code == 0, result.output
     assert "cleared alias" in result.output
 
-    result = runner.invoke(cli, ["alias", "work"])
+    result = runner.invoke(cli, ["account", "alias", "work"])
     assert result.exit_code == 1
     assert "unknown account" in result.output
 
 
-def test_reregister_and_scan_preserve_alias(tmp_path, monkeypatch) -> None:
+def test_readd_and_scan_preserve_alias(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LAIREN_HOME", str(tmp_path / "lairen"))
     home = tmp_path / "project-a"
     write_codex_home(home / ".codex", "alice@example.com")
     runner = CliRunner()
+    add(runner, home / ".codex", "--alias", "work")
+
+    add(runner, home / ".codex")
+
     result = runner.invoke(
-        cli, ["register", "codex", "--home", str(home / ".codex"), "--alias", "work"]
+        cli, ["account", "scan", str(home), "--provider", "codex", "--add"]
     )
     assert result.exit_code == 0, result.output
 
-    result = runner.invoke(cli, ["register", "codex", "--home", str(home / ".codex")])
-    assert result.exit_code == 0, result.output
-
-    result = runner.invoke(cli, ["scan", str(home), "--provider", "codex", "--register"])
-    assert result.exit_code == 0, result.output
-
-    result = runner.invoke(cli, ["list", "--json"])
+    result = runner.invoke(cli, ["account", "list", "--json"])
     accounts = json.loads(result.output)
     assert [account["alias"] for account in accounts] == ["work"]
 
@@ -122,19 +135,17 @@ def test_alias_conflicts_and_invalid_names(tmp_path, monkeypatch) -> None:
     write_codex_home(alice_home, "alice@example.com")
     write_codex_home(bob_home, "bob@example.com")
     runner = CliRunner()
-    assert (
-        runner.invoke(
-            cli, ["register", "codex", "--home", str(alice_home), "--alias", "work"]
-        ).exit_code
-        == 0
-    )
+    add(runner, alice_home, "--alias", "work")
 
     result = runner.invoke(
-        cli, ["register", "codex", "--home", str(bob_home), "--alias", "work"]
+        cli,
+        ["account", "add", "--provider", "codex", "--home", str(bob_home), "--alias", "work"],
     )
     assert result.exit_code == 1
     assert "already used" in result.output
 
-    result = runner.invoke(cli, ["alias", "codex/alice@example.com", "bad alias"])
+    result = runner.invoke(
+        cli, ["account", "alias", "codex/alice@example.com", "bad alias"]
+    )
     assert result.exit_code == 1
     assert "must start" in result.output

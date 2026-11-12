@@ -5,16 +5,16 @@ from __future__ import annotations
 import pytest
 
 from lairen.errors import LairenError
-from lairen.models import Account
+from lairen.models import Account, Auth
 from lairen.store import Registry
 
 
 def make_registry(tmp_path) -> Registry:
     registry = Registry(tmp_path / "registry.json")
-    registry.upsert(Account("kimi", "user-1--device-1", "user-1", "/tmp/h1"))
-    registry.upsert(Account("kimi", "user-1--device-2", "user-1", "/tmp/h2"))
+    registry.upsert(Account("kimi", "user-1--device-1", "user-1", auth=Auth(source_home="/tmp/h1")))
+    registry.upsert(Account("kimi", "user-1--device-2", "user-1", auth=Auth(source_home="/tmp/h2")))
     registry.upsert(
-        Account("codex", "alice@example.com", "alice@example.com", "/tmp/h3")
+        Account("codex", "alice@example.com", "alice@example.com", auth=Auth(source_home="/tmp/h3"))
     )
     return registry
 
@@ -76,7 +76,14 @@ def test_upsert_preserves_alias_on_reregistration(tmp_path) -> None:
     registry = make_registry(tmp_path)
     registry.set_alias("kimi", "user-1--device-1", "kimi-a")
 
-    registry.upsert(Account("kimi", "user-1--device-1", "new-label", "/tmp/new"))
+    registry.upsert(
+        Account(
+            "kimi",
+            "user-1--device-1",
+            "new-label",
+            auth=Auth(source_home="/tmp/new"),
+        )
+    )
 
     updated = registry.get("kimi", "user-1--device-1")
     assert updated.alias == "kimi-a"

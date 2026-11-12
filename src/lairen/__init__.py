@@ -1,3 +1,3 @@
 """lairen 来人 — CLI-agent credential registry and deployer."""
 
-__version__ = "1.5.0"
+__version__ = "2.0.0"

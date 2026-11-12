@@ -1,4 +1,4 @@
-"""CLI coverage for associations, availability, and project deploy targets."""
+"""CLI coverage for deployment listing, availability, and project targets."""
 
 from __future__ import annotations
 
@@ -75,13 +75,13 @@ def write_claude_home(path: Path, *, email: str = "claude@example.com") -> None:
     )
 
 
-def register(
+def add(
     runner: CliRunner,
     provider: str,
     home: Path,
     alias: str | None = None,
 ) -> None:
-    args = ["register", provider, "--home", str(home)]
+    args = ["account", "add", "--provider", provider, "--home", str(home)]
     if alias:
         args.extend(["--alias", alias])
     result = runner.invoke(cli, args)
@@ -97,14 +97,14 @@ def test_deploy_uses_project_native_home(tmp_path, monkeypatch) -> None:
     write_kimi_home(source)
 
     runner = CliRunner()
-    register(runner, "kimi", source, "k1")
+    add(runner, "kimi", source, "k1")
 
-    result = runner.invoke(cli, ["deploy", "k1"])
+    result = runner.invoke(cli, ["deploy", "copy", "k1"])
     assert result.exit_code == 0, result.output
     assert f"target: {project / '.kimi-code'}" in result.output
     assert (project / ".kimi-code" / "credentials" / "kimi-code.json").is_file()
 
-    result = runner.invoke(cli, ["associations", "--json"])
+    result = runner.invoke(cli, ["deploy", "list", "--json"])
     assert result.exit_code == 0, result.output
     records = json.loads(result.output)
     assert len(records) == 1
@@ -112,6 +112,7 @@ def test_deploy_uses_project_native_home(tmp_path, monkeypatch) -> None:
     assert records[0]["project"] == str(project.resolve())
     assert records[0]["home"] == str((project / ".kimi-code").resolve())
     assert records[0]["state"] == "active"
+    assert records[0]["mode"] == "copy"
 
 
 def test_multiple_homes_in_one_project_are_both_active(tmp_path, monkeypatch) -> None:
@@ -125,16 +126,16 @@ def test_multiple_homes_in_one_project_are_both_active(tmp_path, monkeypatch) ->
     write_kimi_home(source_two, device="device-2")
 
     runner = CliRunner()
-    register(runner, "kimi", source_one, "k1")
-    register(runner, "kimi", source_two, "k2")
+    add(runner, "kimi", source_one, "k1")
+    add(runner, "kimi", source_two, "k2")
 
-    assert runner.invoke(cli, ["deploy", "k1"]).exit_code == 0
-    result = runner.invoke(cli, ["deploy", "k2", "--home", ".kimi-code-2"])
+    assert runner.invoke(cli, ["deploy", "copy", "k1"]).exit_code == 0
+    result = runner.invoke(cli, ["deploy", "copy", "k2", "--home", ".kimi-code-2"])
     assert result.exit_code == 0, result.output
 
     result = runner.invoke(
         cli,
-        ["associations", "--group-by", "project", "--active-only", "--json"],
+        ["deploy", "list", "--group-by", "project", "--active-only", "--json"],
     )
     assert result.exit_code == 0, result.output
     records = json.loads(result.output)
@@ -160,22 +161,22 @@ def test_overwritten_account_becomes_available(tmp_path, monkeypatch) -> None:
     write_kimi_home(source_two, device="device-2")
 
     runner = CliRunner()
-    register(runner, "kimi", source_one, "k1")
-    register(runner, "kimi", source_two, "k2")
+    add(runner, "kimi", source_one, "k1")
+    add(runner, "kimi", source_two, "k2")
 
-    assert runner.invoke(cli, ["deploy", "k1"]).exit_code == 0
-    assert runner.invoke(cli, ["deploy", "k2"]).exit_code == 0
+    assert runner.invoke(cli, ["deploy", "copy", "k1"]).exit_code == 0
+    assert runner.invoke(cli, ["deploy", "copy", "k2"]).exit_code == 0
 
-    result = runner.invoke(cli, ["associations", "--json"])
+    result = runner.invoke(cli, ["deploy", "list", "--json"])
     records = {record["ref"]: record for record in json.loads(result.output)}
     assert records["kimi/user-1--device-1"]["state"] == "overwritten"
     assert records["kimi/user-1--device-2"]["state"] == "active"
 
-    result = runner.invoke(cli, ["available", "--json"])
+    result = runner.invoke(cli, ["account", "list", "--available", "--json"])
     assert result.exit_code == 0, result.output
     available = json.loads(result.output)
     assert [item["ref"] for item in available] == ["kimi/user-1--device-1"]
-    assert available[0]["last_assignment"]["state"] == "overwritten"
+    assert available[0]["deployments"][0]["state"] == "overwritten"
 
 
 def test_never_deployed_account_is_available(tmp_path, monkeypatch) -> None:
@@ -183,16 +184,16 @@ def test_never_deployed_account_is_available(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source"
     write_kimi_home(source)
     runner = CliRunner()
-    register(runner, "kimi", source, "k1")
+    add(runner, "kimi", source, "k1")
 
-    result = runner.invoke(cli, ["available", "--json"])
+    result = runner.invoke(cli, ["account", "list", "--available", "--json"])
     assert result.exit_code == 0, result.output
     records = json.loads(result.output)
     assert len(records) == 1
-    assert records[0]["last_assignment"] is None
+    assert records[0]["deployments"] == []
 
 
-def test_associations_across_kimi_codex_and_claude(tmp_path, monkeypatch) -> None:
+def test_deploy_list_across_kimi_codex_and_claude(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LAIREN_HOME", str(tmp_path / "lairen"))
     project = tmp_path / "project"
     project.mkdir()
@@ -206,19 +207,19 @@ def test_associations_across_kimi_codex_and_claude(tmp_path, monkeypatch) -> Non
     write_claude_home(claude_source)
 
     runner = CliRunner()
-    register(runner, "kimi", kimi_source)
-    register(runner, "codex", codex_source)
-    register(runner, "claude", claude_source)
+    add(runner, "kimi", kimi_source)
+    add(runner, "codex", codex_source)
+    add(runner, "claude", claude_source)
 
     for ref in (
         "kimi/user-1--device-1",
         "codex/alice@example.com",
         "claude/claude@example.com",
     ):
-        result = runner.invoke(cli, ["deploy", ref])
+        result = runner.invoke(cli, ["deploy", "copy", ref])
         assert result.exit_code == 0, result.output
 
-    result = runner.invoke(cli, ["associations", "--group-by", "project", "--json"])
+    result = runner.invoke(cli, ["deploy", "list", "--group-by", "project", "--json"])
     assert result.exit_code == 0, result.output
     records = json.loads(result.output)
     assert {record["provider"] for record in records} == {
@@ -244,24 +245,33 @@ def test_project_filter_and_account_filter(tmp_path, monkeypatch) -> None:
     source = tmp_path / "source"
     write_kimi_home(source)
     runner = CliRunner()
-    register(runner, "kimi", source, "k1")
+    add(runner, "kimi", source, "k1")
 
     assert runner.invoke(
-        cli, ["deploy", "k1", "--project", str(project)]
+        cli, ["deploy", "copy", "k1", "--project", str(project)]
     ).exit_code == 0
     assert runner.invoke(
-        cli, ["deploy", "k1", "--project", str(other), "--home", ".kimi-code"]
+        cli,
+        [
+            "deploy",
+            "copy",
+            "k1",
+            "--project",
+            str(other),
+            "--home",
+            ".kimi-code",
+        ],
     ).exit_code == 0
 
     result = runner.invoke(
         cli,
-        ["associations", "--project", str(project), "--json"],
+        ["deploy", "list", "--project", str(project), "--json"],
     )
     assert result.exit_code == 0, result.output
     records = json.loads(result.output)
     assert len(records) == 1
     assert records[0]["project"] == str(project.resolve())
 
-    result = runner.invoke(cli, ["associations", "--account", "k1", "--json"])
+    result = runner.invoke(cli, ["deploy", "list", "--account", "k1", "--json"])
     assert result.exit_code == 0, result.output
     assert len(json.loads(result.output)) == 2
