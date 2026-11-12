@@ -2,6 +2,26 @@
 
 All notable changes to lairen are documented here.
 
+## 2.1.0 - 2026-11-12
+
+### Added
+
+- `lairen deploy env` can apply a holder environment variable to tmux using
+  [libtmux](https://github.com/tmux-python/libtmux):
+  - `--tmux` types the export into the current pane's shell.
+  - `--tmux-session` sets the session environment for future panes.
+  - `--tmux-global` sets the tmux server global environment.
+  - `--no-overwrite` refuses to replace a different session/global value.
+  - `--no-print` suppresses the shell export line.
+- Session/global overwrites report the old and new value; non-overwrites
+  report only the new value.
+- Pane injection requires lairen to be the foreground process in a pane
+  running a recognized shell; it refuses to type into a running agent.
+
+### Changed
+
+- Added `libtmux>=0.62.0` as a runtime dependency for tmux integration.
+
 ## 2.0.0 - 2026-11-12
 
 This is a breaking redesign. The account is now the aggregate root, and the

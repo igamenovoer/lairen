@@ -34,6 +34,7 @@ from lairen.targets import (
     resolve_deploy_target,
     resolve_link_target,
 )
+from lairen.tmux import LibTmuxBackend, apply_tmux_env
 from lairen.util import epoch_to_iso, format_remaining, utc_now
 
 
@@ -1240,8 +1241,54 @@ def deploy_link(
     type=click.Choice(SHELL_CHOICES),
     help="shell syntax (default: auto-detect)",
 )
-def deploy_env(ref: str, shell: str | None) -> None:
+@click.option(
+    "--tmux",
+    is_flag=True,
+    help="type the export into the current tmux pane",
+)
+@click.option(
+    "--tmux-session",
+    is_flag=True,
+    help="set the tmux session environment for future panes",
+)
+@click.option(
+    "--tmux-global",
+    is_flag=True,
+    help="set the tmux server global environment",
+)
+@click.option(
+    "--no-overwrite",
+    is_flag=True,
+    help="refuse to replace a different tmux session/global value",
+)
+@click.option(
+    "--no-print",
+    is_flag=True,
+    help="do not print the shell export line",
+)
+def deploy_env(
+    ref: str,
+    shell: str | None,
+    tmux: bool,
+    tmux_session: bool,
+    tmux_global: bool,
+    no_overwrite: bool,
+    no_print: bool,
+) -> None:
     """Print shell exports that point the provider home at the holder."""
+    if tmux_session and tmux_global:
+        raise LairenError("choose --tmux-session or --tmux-global")
+    if no_overwrite and not (tmux_session or tmux_global):
+        raise LairenError(
+            "--no-overwrite requires --tmux-session or --tmux-global; "
+            "the current pane's live environment cannot be inspected portably"
+        )
+    tmux_requested = tmux or tmux_session or tmux_global
+    if no_print and not tmux_requested:
+        raise LairenError(
+            "--no-print requires --tmux, --tmux-session, or --tmux-global"
+        )
+
     _, registry, _ = _context()
     record = registry.resolve(ref)
     adapter = get_provider(record.provider)
@@ -1265,8 +1312,27 @@ def deploy_env(ref: str, shell: str | None) -> None:
             f"run `lairen account sync {record.ref} --home {holder_home}`",
             err=True,
         )
-    resolved = normalize_shell(shell or "auto")
-    click.echo(export_command(resolved, adapter.env_var, str(holder_home)))
+
+    if not tmux_requested:
+        resolved = normalize_shell(shell or "auto")
+        click.echo(export_command(resolved, adapter.env_var, str(holder_home)))
+        return
+
+    backend = LibTmuxBackend.from_env()
+    scope = "session" if tmux_session else "global" if tmux_global else None
+    result = apply_tmux_env(
+        backend,
+        adapter.env_var,
+        str(holder_home),
+        inject_pane=tmux,
+        scope=scope,
+        no_overwrite=no_overwrite,
+        shell_override=shell,
+    )
+    if not no_print:
+        click.echo(result.export_text)
+    for line in result.lines:
+        click.echo(line)
 
 
 @deploy_group.command("list")

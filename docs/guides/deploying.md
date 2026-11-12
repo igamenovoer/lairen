@@ -119,6 +119,55 @@ stderr, so `eval` is safe.
 
 Cursor has no provider home environment variable; use `link` instead.
 
+### tmux integration
+
+`deploy env` can apply the holder env var inside tmux. This uses
+[libtmux](https://github.com/tmux-python/libtmux) and is opt-in.
+
+```bash
+# Type the export into the current pane's shell
+lairen deploy env aj --tmux
+
+# Also set the session environment inherited by new panes
+lairen deploy env aj --tmux --tmux-session
+
+# Session only; safe when lairen is running under an agent
+lairen deploy env aj --tmux-session
+
+# Server global environment for future sessions
+lairen deploy env aj --tmux-global
+```
+
+Options:
+
+| Option | Meaning |
+|---|---|
+| `--tmux` | Type the export into the current pane's shell. |
+| `--tmux-session` | Set the current session environment for new panes/windows. |
+| `--tmux-global` | Set the tmux server global environment. |
+| `--no-overwrite` | Refuse to replace a different session/global value. |
+| `--no-print` | Suppress the shell export line; tmux reports still print. |
+
+`--tmux` checks that lairen is the foreground process in the pane and that the
+waiting process is a recognized shell. It refuses to type into a running
+agent, editor, or pager. The typed export is queued on the pane's tty and runs
+when the shell regains the prompt.
+
+Session/global overwrites report both values:
+
+```text
+tmux session $1: CODEX_HOME=/old -> /new
+```
+
+Unchanged or newly set values report only the value:
+
+```text
+tmux session $1: CODEX_HOME=/new
+```
+
+`--no-overwrite` turns a different existing value into an error and changes
+nothing. `--tmux-session` and `--tmux-global` are mutually exclusive.
+
 ## Staleness lifecycle
 
 | Event | Holder state |

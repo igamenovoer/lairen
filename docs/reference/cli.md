@@ -251,6 +251,8 @@ symlink to the holder.
 
 ```text
 lairen deploy env REF [--shell auto|sh|bash|zsh|fish|csh|tcsh|powershell|pwsh|nu]
+                      [--tmux] [--tmux-session] [--tmux-global]
+                      [--no-overwrite] [--no-print]
 ```
 
 Prints one export command on stdout. Warnings go to stderr.
@@ -261,6 +263,32 @@ eval "$(lairen deploy env aj)"
 
 `auto` detects from `$SHELL` and defaults to POSIX `sh`. Providers without an
 environment variable (Cursor) are rejected with a pointer to `deploy link`.
+
+tmux integration uses [libtmux](https://github.com/tmux-python/libtmux):
+
+| Option | Meaning |
+|---|---|
+| `--tmux` | Type the export into the current pane's shell. |
+| `--tmux-session` | Set the current session environment for future panes. |
+| `--tmux-global` | Set the tmux server global environment. |
+| `--no-overwrite` | Refuse to replace a different session/global value. |
+| `--no-print` | Do not print the shell export line. |
+
+`--tmux` requires lairen to be the foreground process in a pane running a
+recognized shell; it refuses to type into an agent or other foreground
+process. `--tmux-session` and `--tmux-global` are mutually exclusive.
+`--no-overwrite` requires one of them.
+
+Session/global writes report the value:
+
+```text
+tmux session $1: KIMI_CODE_HOME=/new
+tmux session $1: KIMI_CODE_HOME=/old -> /new
+tmux pane %0: KIMI_CODE_HOME=/new
+```
+
+The old value is shown only when an overwrite happens. A `--no-overwrite`
+conflict is an error and changes nothing.
 
 ### deploy list
 

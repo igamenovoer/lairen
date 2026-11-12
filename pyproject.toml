@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lairen"
-version = "2.0.0"
+version = "2.1.0"
 description = "Store CLI-agent credentials and deploy them into target homes."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,7 +18,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Utilities",
 ]
-dependencies = ["click>=8.1"]
+dependencies = ["click>=8.1", "libtmux>=0.62.0"]
 
 [project.urls]
 Homepage = "https://igamenovoer.github.io/lairen/"
@@ -49,6 +49,7 @@ mkdocs-material = ">=9.8.0,<10"
 
 [tool.pixi.pypi-dependencies]
 lairen = { path = ".", editable = true }
+libtmux = ">=0.62.0"
 
 [tool.pixi.tasks]
 test-core = "python -m pytest tests/core/unit tests/core/integration"

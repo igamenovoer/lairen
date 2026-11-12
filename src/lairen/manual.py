@@ -143,6 +143,8 @@ DEPLOY
         [--force] [--no-backup]
   lairen deploy link REF [--project P] [--home PATH] [--force]
   lairen deploy env REF [--shell auto|sh|bash|zsh|fish|csh|tcsh|powershell|pwsh|nu]
+        [--tmux] [--tmux-session] [--tmux-global]
+        [--no-overwrite] [--no-print]
   lairen deploy list [--account REF ...] [--project P ...] [--provider P ...]
         [--mode copy|link ...] [--group-by account|project]
         [--active-only] [--json]
@@ -186,6 +188,12 @@ _WORKFLOWS = """\
    eval "$(lairen deploy env aj)"
    lairen status
    # link copies no bytes; the project gets .codex -> holder home.
+
+   Inside tmux:
+   lairen deploy env aj --tmux
+   lairen deploy env aj --tmux --tmux-session
+   lairen deploy env aj --tmux-session --no-overwrite
+   # --tmux types into the current pane; --tmux-session sets future panes.
 
 7. Copy stored auth to another project
    lairen deploy copy aj --project ~/code/project-b
@@ -362,6 +370,10 @@ _SAFETY = """\
   stale. lairen marks it possibly stale; it does not block link/env use.
 - status --strict fails on stale, missing, or logged-out holders. The error
   names the account, reason, and repair command.
+- deploy env --tmux only types into the current pane when lairen is the
+  foreground process and the waiting process is a recognized shell. It refuses
+  to type into a running agent. --tmux-session and --tmux-global are the safe
+  session-level alternatives.
 - account sync reads the holder and known deployed homes; it never writes a
   provider home.
 - account update changes the ref when identity changes. The alias survives.

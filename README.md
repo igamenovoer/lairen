@@ -14,7 +14,7 @@ inside lairen, point at one live holder home, or both. A project can use the
 account by copying the stored auth, linking to the holder, or activating the
 holder in the current shell.
 
-Status: `2.0.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
+Status: `2.1.0`, Pixi-managed, Click-based. Codex and Kimi are the tested
 adapters; the other provider adapters are implemented but remain experimental
 because this project has no live credentials for them yet.
 
@@ -158,6 +158,25 @@ Deployment modes:
 - **env** prints one shell export so the current shell and its children use the
   holder: `eval "$(lairen deploy env aj)"`.
 
+`deploy env` also has opt-in tmux integration using
+[libtmux](https://github.com/tmux-python/libtmux):
+
+- `--tmux` types the export into the current tmux pane's shell.
+- `--tmux-session` sets the session environment inherited by new panes.
+- `--tmux-global` sets the tmux server global environment.
+- `--no-overwrite` refuses to replace a different session/global value.
+- `--no-print` suppresses the normal export line.
+
+```bash
+lairen deploy env aj --tmux
+lairen deploy env aj --tmux --tmux-session
+lairen deploy env aj --tmux-session --no-overwrite
+```
+
+`--tmux` requires lairen to be the foreground process in a pane running a
+recognized shell. It never types into a running agent. Session/global changes
+show the old and new value when they overwrite.
+
 Staleness is advisory. `link` and `env` keep working and print a warning.
 `lairen status --strict` fails and explains the reason plus the repair command:
 
@@ -249,6 +268,8 @@ Deploy subcommands:
 lairen deploy copy REF [--project P] [--home PATH] [--sync] [--force] [--no-backup]
 lairen deploy link REF [--project P] [--home PATH] [--force]
 lairen deploy env REF [--shell auto|sh|bash|zsh|fish|csh|tcsh|powershell|pwsh|nu]
+                   [--tmux] [--tmux-session] [--tmux-global]
+                   [--no-overwrite] [--no-print]
 lairen deploy list [--account REF ...] [--project P ...] [--provider P ...]
                    [--mode copy|link ...] [--group-by account|project]
                    [--active-only] [--json]
